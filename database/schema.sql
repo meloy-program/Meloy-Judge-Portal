@@ -425,10 +425,10 @@ CREATE TRIGGER trigger_calculate_time_spent BEFORE UPDATE ON score_submissions
 -- ============================================================================
 
 INSERT INTO rubric_criteria (name, short_name, description, max_score, display_order, icon_name, guiding_question) VALUES
-('Effective Communication', 'Communication', 'Was the problem urgent, the solution convincing, and the impact tangible?', 25, 1, 'Megaphone', 'Notes on clarity and messaging...'),
-('Would Fund/Buy Solution', 'Funding', 'Consider technical feasibility, commercial viability, and novelty of the approach.', 25, 2, 'BadgeDollarSign', 'Thoughts on feasibility and potential...'),
-('Presentation Quality', 'Presentation', 'Evaluate the demo assets, storytelling, and overall delivery.', 25, 3, 'Presentation', 'Observations on delivery and engagement...'),
-('Team Cohesion', 'Cohesion', 'Reflect on the pitch strength, Q&A performance, and your gut confidence.', 25, 4, 'Sparkles', 'General impressions and final thoughts...');
+('Effective Communication', 'Communication', 'Was the problem clear and important? Does the solution address the problem effectively? Are the both the near and long-term impacts addressed?', 25, 1, 'Megaphone', 'Write down thoughts here:'),
+('Would Fund/Buy Solution', 'Funding', 'Consider technical feasibility, commercial viability, and novelty of the approach.', 25, 2, 'BadgeDollarSign', 'Write down thoughts here:'),
+('Presentation Quality', 'Presentation', 'How inspiring was the video? Does the prototype add to the story? How clear, organized, and engaging are the slides?', 25, 3, 'Presentation', 'Write down thoughts here:'),
+('Overall', 'Cohesion', 'Reflect on how compelling the pitch was. How well did the team handle Q&A?', 25, 4, 'Sparkles', 'Write down thoughts here:');
 
 -- ============================================================================
 -- HELPER VIEWS
