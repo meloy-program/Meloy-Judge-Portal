@@ -388,11 +388,17 @@ router.post('/init-schema', async (_req, res) => {
 
             console.log('Inserting default rubric criteria...');
             await client.query(`
-                INSERT INTO rubric_criteria (name, short_name, description, max_score, display_order, icon_name, guiding_question) VALUES
-                ('Effective Communication', 'Communication', 'Was the problem urgent, the solution convincing, and the impact tangible?', 25, 1, 'Megaphone', 'Notes on clarity and messaging...'),
-                ('Would Fund/Buy Solution', 'Funding', 'Consider technical feasibility, commercial viability, and novelty of the approach.', 25, 2, 'BadgeDollarSign', 'Thoughts on feasibility and potential...'),
-                ('Presentation Quality', 'Presentation', 'Evaluate the demo assets, storytelling, and overall delivery.', 25, 3, 'Presentation', 'Observations on delivery and engagement...'),
-                ('Team Cohesion', 'Cohesion', 'Reflect on the pitch strength, Q&A performance, and your gut confidence.', 25, 4, 'Sparkles', 'General impressions and final thoughts...')
+                INSERT INTO rubric_criteria (name, short_name, description, max_score, display_order, icon_name, guiding_question, event_type) VALUES
+                ('Effective Communication', 'Communication', 'Was the problem clear and important? Does the solution address the problem effectively? Are both the near and long-term impacts addressed?', 25, 1, 'Megaphone', 'Write down thoughts here:', 'aggies-invent'),
+                ('Would Fund/Buy Solution', 'Funding', 'Consider technical feasibility, commercial viability, and novelty of the approach.', 25, 2, 'BadgeDollarSign', 'Write down thoughts here:', 'aggies-invent'),
+                ('Presentation Quality', 'Presentation', 'How inspiring was the video? Does the prototype add to the story? How clear, organized, and engaging are the slides?', 25, 3, 'Presentation', 'Write down thoughts here:', 'aggies-invent'),
+                ('Overall', 'Cohesion', 'Reflect on how compelling the pitch was. How well did the team handle Q&A?', 25, 4, 'Sparkles', 'Write down thoughts here:', 'aggies-invent'),
+                ('Is the problem clear and concise?', 'Problem', NULL, 5, 1, 'Target', 'Write down thoughts here:', 'problems-worth-solving'),
+                ('Is it clear what people and/or organizations have the problem?', 'Customer', NULL, 5, 2, 'Users', 'Write down thoughts here:', 'problems-worth-solving'),
+                ('Is a compelling case made that customers would pay for a solution?', 'Willingness', NULL, 5, 3, 'BadgeDollarSign', 'Write down thoughts here:', 'problems-worth-solving'),
+                ('Is the target market large enough to support a high-growth business?', 'Market', NULL, 5, 4, 'TrendingUp', 'Write down thoughts here:', 'problems-worth-solving'),
+                ('Is it clear that the existing solutions to solve the problem are inadequate or absent?', 'Solutions', NULL, 5, 5, 'Lightbulb', 'Write down thoughts here:', 'problems-worth-solving'),
+                ($$Judge's Overall Impressions$$, 'Overall', NULL, 5, 6, 'Sparkles', 'Write down thoughts here:', 'problems-worth-solving')
             `);
 
             console.log('Creating schema_version table...');

@@ -80,12 +80,9 @@ export function EventDetailsSection({
                 <button
                   key={type.value}
                   onClick={() => setEventType(type.value)}
-                  disabled={type.value === "problems-worth-solving"}
                   className={`flex items-center justify-center rounded-xl border-2 p-6 transition-all relative ${
                     eventType === type.value
                       ? "border-primary/50 bg-primary/10 shadow-md"
-                      : type.value === "problems-worth-solving"
-                      ? "border-slate-200 bg-slate-100 cursor-not-allowed opacity-60"
                       : "border-slate-200 bg-white hover:border-primary/30 hover:bg-primary/5"
                   }`}
                 >
@@ -99,13 +96,6 @@ export function EventDetailsSection({
                       filter: eventType === type.value ? "none" : "grayscale(100%) opacity(0.5)",
                     }}
                   />
-                  {type.value === "problems-worth-solving" && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-white/80 rounded-xl">
-                      <span className="text-xs font-bold uppercase tracking-wider text-slate-600 bg-amber-100 px-3 py-1 rounded-full border border-amber-300">
-                        Coming Soon
-                      </span>
-                    </div>
-                  )}
                 </button>
               ))}
             </div>

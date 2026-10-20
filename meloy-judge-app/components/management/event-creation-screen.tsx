@@ -13,6 +13,7 @@ import { createEvent, updateEvent, updateJudgeAccount } from "@/lib/api/events"
 import { createSponsor } from "@/lib/api/sponsors"
 import { getCurrentUser } from "@/lib/api"
 import { useToast } from "@/hooks/use-toast"
+import { getEventDateRangeError } from "@/lib/event-dates"
 
 interface EventCreationScreenProps {
   onBack: () => void
@@ -79,12 +80,18 @@ export function EventCreationScreen({ onBack }: EventCreationScreenProps) {
         return
       }
 
-      // Step 1: Create the event
+      const dateError = getEventDateRangeError(startDate, endDate)
+      if (dateError) {
+        toast({ title: "Invalid Event Dates", description: dateError, variant: "destructive" })
+        return
+      }
+
+      // Step 1: Create the event with the selected calendar dates.
       const { event } = await createEvent({
         name: eventName,
         event_type: eventType,
-        start_date: new Date(startDate).toISOString(),
-        end_date: new Date(endDate).toISOString(),
+        start_date: startDate,
+        end_date: endDate,
         location: eventLocation,
         description: eventDescription || "",
       })

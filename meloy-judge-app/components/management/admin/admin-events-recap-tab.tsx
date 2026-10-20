@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { Calendar, BarChart3, Download, ChevronLeft, ChevronRight, Loader2, Trophy, Users, FileText, Award } from "lucide-react"
 import { getCompletedEventsRecap, exportEventToExcel } from "@/lib/api/events"
 import { useToast } from "@/hooks/use-toast"
+import { formatEventDateRange as formatDateRange } from "@/lib/event-dates"
 
 interface Judge {
   id: string
@@ -130,20 +131,6 @@ export function AdminEventsRecapTab() {
 
   const reversedEvents = [...events].reverse()
   const event = events[events.length - 1 - selectedEventIndex]
-
-  const formatDateRange = (startDate: string, endDate: string) => {
-    const start = new Date(startDate)
-    const end = new Date(endDate)
-    const options: Intl.DateTimeFormatOptions = { month: 'long', day: 'numeric', year: 'numeric' }
-
-    if (start.toDateString() === end.toDateString()) {
-      return start.toLocaleDateString('en-US', options)
-    }
-
-    const startMonth = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-    const endFormatted = end.toLocaleDateString('en-US', options)
-    return `${startMonth} - ${endFormatted}`
-  }
 
   const getEventLogo = (eventType: string) => {
     if (eventType.includes('problems-worth-solving')) {

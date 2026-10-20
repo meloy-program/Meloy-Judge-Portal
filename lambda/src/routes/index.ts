@@ -8,6 +8,7 @@ import usersRoutes from './users.routes';
 import adminRoutes from './admin.routes';
 import sponsorsRoutes from './sponsors.routes';
 import judgeProfilesRoutes from './judge-profiles.routes';
+import uploadsRoutes from './uploads.routes';
 
 export {
     authRoutes,
@@ -19,5 +20,6 @@ export {
     usersRoutes,
     adminRoutes,
     sponsorsRoutes,
-    judgeProfilesRoutes
+    judgeProfilesRoutes,
+    uploadsRoutes,
 };

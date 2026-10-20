@@ -20,9 +20,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import type { Screen } from "@/components/app-shell"
-import { ArrowLeft, BarChart3, Users, CheckCircle2, Clock, Circle, MapPin, CalendarDays, Activity, Settings, User, Loader2, Menu, Shield, ExternalLink, ChevronDown, UserCircle2 } from "lucide-react"
+import { ArrowLeft, BarChart3, Users, CheckCircle2, Clock, Circle, MapPin, CalendarDays, Activity, Settings, User, Loader2, Menu, Shield, ExternalLink, ChevronDown, UserCircle2, Printer, Upload } from "lucide-react"
 import { getEvent, getEventTeams } from "@/lib/api"
 import type { Event, Team } from "@/lib/types/api"
+import { useAuthToken } from "@/lib/auth-context"
+import { sortEventTeams } from "@/lib/event-judging"
+import { formatEventDateRange } from "@/lib/event-dates"
 
 interface EventDetailScreenProps {
   eventId: string
@@ -32,11 +35,13 @@ interface EventDetailScreenProps {
   onNavigate: (screen: Screen) => void
   onManageEvent: (eventId: string) => void
   onOpenModerator: () => void
+  onOpenCommentSheets?: () => void
+  onOpenUploadSheets?: () => void
   isAdmin: boolean
   judgeName: string | null
 }
 
-export function EventDetailScreen({ eventId, judgeId, onSelectTeam, onBack, onNavigate, onManageEvent, onOpenModerator, isAdmin, judgeName }: EventDetailScreenProps) {
+export function EventDetailScreen({ eventId, judgeId, onSelectTeam, onBack, onNavigate, onManageEvent, onOpenModerator, onOpenCommentSheets, onOpenUploadSheets, isAdmin, judgeName }: EventDetailScreenProps) {
   const [event, setEvent] = useState<Event | null>(null)
   const [teams, setTeams] = useState<Team[]>([])
   const [loading, setLoading] = useState(true)
@@ -44,9 +49,16 @@ export function EventDetailScreen({ eventId, judgeId, onSelectTeam, onBack, onNa
   const [expandedTeam, setExpandedTeam] = useState<Team | null>(null)
   const [isInitialLoad, setIsInitialLoad] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const { isTokenValid, isValidating } = useAuthToken()
 
   useEffect(() => {
+    if (!isTokenValid || isValidating) return
+    let cancelled = false
+    let fetching = false
+
     async function fetchData() {
+      if (fetching) return
+      fetching = true
       try {
         // Only show loading spinner on initial load, not on background refreshes
         if (isInitialLoad) {
@@ -59,6 +71,7 @@ export function EventDetailScreen({ eventId, judgeId, onSelectTeam, onBack, onNa
           getEvent(eventId),
           getEventTeams(eventId, { activeOnly: false, judgeId: judgeId || undefined })
         ])
+        if (cancelled) return
         setEvent(eventData.event)
         // For judges: hide teams still in "waiting" status (not yet activated by moderator)
         // Admins see all teams regardless of status
@@ -67,13 +80,16 @@ export function EventDetailScreen({ eventId, judgeId, onSelectTeam, onBack, onNa
           : teamsData.teams.filter(t => t.status !== 'waiting')
         setTeams(filteredTeams)
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load event data')
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load event data')
       } finally {
-        if (isInitialLoad) {
-          setLoading(false)
-          setIsInitialLoad(false)
+        fetching = false
+        if (!cancelled) {
+          if (isInitialLoad) {
+            setLoading(false)
+            setIsInitialLoad(false)
+          }
+          setIsRefreshing(false)
         }
-        setIsRefreshing(false)
       }
     }
     fetchData()
@@ -83,8 +99,11 @@ export function EventDetailScreen({ eventId, judgeId, onSelectTeam, onBack, onNa
     const intervalId = setInterval(fetchData, 5000)
 
     // Cleanup on unmount
-    return () => clearInterval(intervalId)
-  }, [eventId, judgeId, isAdmin, isInitialLoad])
+    return () => {
+      cancelled = true
+      clearInterval(intervalId)
+    }
+  }, [eventId, judgeId, isAdmin, isInitialLoad, isTokenValid, isValidating])
 
   // Determine event type and labels from RDS data
   const isPWSEvent = event?.event_type?.includes("problems-worth-solving") ?? false
@@ -119,21 +138,6 @@ export function EventDetailScreen({ eventId, judgeId, onSelectTeam, onBack, onNa
     textColor: "#FFFFFF",
     primaryColor: "#500000",
     secondaryColor: "#1f0000"
-  }
-
-  // Format date range helper
-  const formatDateRange = (startDate: string, endDate: string) => {
-    const start = new Date(startDate)
-    const end = new Date(endDate)
-    const options: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric', year: 'numeric' }
-
-    if (start.toDateString() === end.toDateString()) {
-      return start.toLocaleDateString('en-US', options)
-    }
-
-    const startMonth = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-    const endFormatted = end.toLocaleDateString('en-US', options)
-    return `${startMonth} – ${endFormatted}`
   }
 
   // Loading state
@@ -183,7 +187,7 @@ export function EventDetailScreen({ eventId, judgeId, onSelectTeam, onBack, onNa
 
             {/* Center: Event Type Logo + Event Title (hidden on mobile, shown on larger screens) */}
             <div className="hidden md:flex flex-col items-center flex-1 min-w-0 px-4">
-              <Image src={eventLogoSrc} alt="Event type" width={120} height={32} className="h-6 lg:h-7 xl:h-8 w-auto object-contain brightness-0 invert opacity-60 mb-1" />
+              <Image src={eventLogoSrc} alt="Event type" width={160} height={56} className={`w-auto object-contain brightness-0 invert mb-1 ${isPWSEvent ? "h-10 lg:h-12 xl:h-14 opacity-90" : "h-6 lg:h-7 xl:h-8 opacity-60"}`} />
               <h1 className="text-xl lg:text-2xl xl:text-3xl font-semibold text-white leading-tight text-center truncate w-full">{event.name}</h1>
             </div>
 
@@ -231,6 +235,24 @@ export function EventDetailScreen({ eventId, judgeId, onSelectTeam, onBack, onNa
                         <Shield className="h-5 w-5" />
                         <span>Moderator Screen</span>
                       </DropdownMenuItem>
+                      {isPWSEvent && onOpenCommentSheets && (
+                        <DropdownMenuItem
+                          onClick={onOpenCommentSheets}
+                          className="flex items-center gap-3 px-4 py-3 text-base font-medium text-slate-700 cursor-pointer rounded-xl hover:bg-primary/10 hover:text-primary focus:bg-primary/10 focus:text-primary"
+                        >
+                          <Printer className="h-5 w-5" />
+                          <span>Print Comment Sheets</span>
+                        </DropdownMenuItem>
+                      )}
+                      {isPWSEvent && onOpenUploadSheets && (
+                        <DropdownMenuItem
+                          onClick={onOpenUploadSheets}
+                          className="flex items-center gap-3 px-4 py-3 text-base font-medium text-slate-700 cursor-pointer rounded-xl hover:bg-primary/10 hover:text-primary focus:bg-primary/10 focus:text-primary"
+                        >
+                          <Upload className="h-5 w-5" />
+                          <span>Upload Comment Sheets</span>
+                        </DropdownMenuItem>
+                      )}
                       <DropdownMenuSeparator className="my-1 bg-slate-200" />
                       <DropdownMenuItem
                         onClick={() => onManageEvent(eventId)}
@@ -248,7 +270,7 @@ export function EventDetailScreen({ eventId, judgeId, onSelectTeam, onBack, onNa
 
           {/* Mobile Event Title - Centered Below */}
           <div className="md:hidden mt-3 flex flex-col items-center text-center">
-            <Image src={eventLogoSrc} alt="Event type" width={100} height={28} className="h-5 w-auto object-contain brightness-0 invert opacity-60 mb-1" />
+            <Image src={eventLogoSrc} alt="Event type" width={130} height={44} className={`w-auto object-contain brightness-0 invert mb-1 ${isPWSEvent ? "h-9 opacity-90" : "h-5 opacity-60"}`} />
             <h1 className="text-lg font-semibold text-white leading-tight">{event.name}</h1>
           </div>
         </div>
@@ -295,7 +317,7 @@ export function EventDetailScreen({ eventId, judgeId, onSelectTeam, onBack, onNa
               <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 lg:gap-x-6">
                 <span className="flex items-center gap-1.5 text-xs sm:text-sm" style={{ color: hexToRgba(sponsor.textColor, 0.87) }}>
                   <CalendarDays className="h-3.5 w-3.5 lg:h-4 lg:w-4 shrink-0" />
-                  <span>{formatDateRange(event.start_date, event.end_date)}</span>
+                  <span>{formatEventDateRange(event.start_date, event.end_date, 'short')}</span>
                 </span>
                 <span className="flex items-center gap-1.5 text-xs sm:text-sm" style={{ color: hexToRgba(sponsor.textColor, 0.87) }}>
                   <MapPin className="h-3.5 w-3.5 lg:h-4 lg:w-4 shrink-0" />
@@ -317,15 +339,7 @@ export function EventDetailScreen({ eventId, judgeId, onSelectTeam, onBack, onNa
           </div>
 
           <div className="grid gap-4 sm:gap-6">
-            {teams.length > 0 ? teams
-              .sort((a, b) => {
-                // Move completed/done teams to the bottom
-                const aDone = a.has_current_user_scored || a.status === 'done' || a.status === 'completed';
-                const bDone = b.has_current_user_scored || b.status === 'done' || b.status === 'completed';
-                if (aDone && !bDone) return 1;
-                if (!aDone && bDone) return -1;
-                return 0;
-              })
+            {teams.length > 0 ? sortEventTeams(teams, event.event_type, isAdmin)
               .map((team, index) => {
                 const isScored = team.has_current_user_scored ?? false;
                 const isDone = team.status === 'done' || team.status === 'completed';

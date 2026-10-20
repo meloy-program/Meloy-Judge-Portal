@@ -83,11 +83,12 @@ export interface RubricCriteria {
     id: string;
     name: string;
     short_name: string;
-    description: string;
+    description: string | null;
     max_score: number;
     display_order: number;
     icon_name: string;
     guiding_question: string;
+    event_type: string; // 'aggies-invent' | 'problems-worth-solving'
     created_at: string;
 }
 

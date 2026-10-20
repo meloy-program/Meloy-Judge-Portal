@@ -14,6 +14,11 @@ router.post('/', authenticate, async (req: AuthRequest, res) => {
     try {
         const { eventId, teamId, judgeId, scores, overallComments, timeSpentSeconds } = req.body;
 
+        // Admins and moderators cannot submit scores — only judges can
+        if (req.user?.role === 'admin' || req.user?.role === 'moderator') {
+            return res.status(403).json({ error: 'Only judges can submit scores' });
+        }
+
         // Validate judgeId is provided
         if (!judgeId) {
             return res.status(400).json({ error: 'judgeId is required - select a judge profile first' });
@@ -75,11 +80,16 @@ router.post('/', authenticate, async (req: AuthRequest, res) => {
 });
 
 /**
- * Get rubric criteria
+ * Get rubric criteria for a specific event type
+ * @query event_type - 'aggies-invent' | 'problems-worth-solving' (default: 'aggies-invent')
  */
-router.get('/rubric', async (_req, res) => {
+router.get('/rubric', async (req, res) => {
     try {
-        const criteria = await query('SELECT * FROM rubric_criteria ORDER BY display_order');
+        const event_type = (req.query.event_type as string) || 'aggies-invent';
+        const criteria = await query(
+            'SELECT * FROM rubric_criteria WHERE event_type = $1 ORDER BY display_order',
+            [event_type]
+        );
         res.json({ criteria });
     } catch (error) {
         res.status(500).json({ error: 'Failed to fetch rubric' });
@@ -92,15 +102,18 @@ router.get('/rubric', async (_req, res) => {
 router.get('/:teamId/:judgeId', authenticate, async (req: AuthRequest, res) => {
     try {
         const { teamId, judgeId } = req.params;
+        const isAdminUser = req.user?.role === 'admin' || req.user?.role === 'moderator';
 
-        // Verify judge profile belongs to the authenticated user
-        const judgeProfile = await query(
-            'SELECT id, event_id FROM event_judges WHERE id = $1 AND user_id = $2',
-            [judgeId, req.user!.id]
-        );
+        if (!isAdminUser) {
+            // For regular judges, verify the profile belongs to the authenticated user
+            const judgeProfile = await query(
+                'SELECT id, event_id FROM event_judges WHERE id = $1 AND user_id = $2',
+                [judgeId, req.user!.id]
+            );
 
-        if (!judgeProfile || judgeProfile.length === 0) {
-            return res.status(403).json({ error: 'Invalid judge profile' });
+            if (!judgeProfile || judgeProfile.length === 0) {
+                return res.status(403).json({ error: 'Invalid judge profile' });
+            }
         }
 
         // Get the score submission

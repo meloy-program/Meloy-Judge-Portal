@@ -18,6 +18,8 @@ import {
 import { useToast } from "@/hooks/use-toast"
 import { getEvents, deleteEvent } from "@/lib/api"
 import type { Event } from "@/lib/types/api"
+import { formatEventDateRange as formatDateRange, getEventDisplayStatus } from "@/lib/event-dates"
+import { useEventToday } from "@/hooks/use-event-today"
 
 interface EventWithTeams extends Event {
   teams?: Array<{ id: string; name: string }>
@@ -36,6 +38,7 @@ export function AdminEventsTab({ onCreateEvent, onManageEvent }: AdminEventsTabP
   const [eventToDelete, setEventToDelete] = useState<EventWithTeams | null>(null)
   const [deleting, setDeleting] = useState(false)
   const { toast } = useToast()
+  const today = useEventToday()
 
   const fetchEvents = async () => {
     try {
@@ -104,21 +107,6 @@ export function AdminEventsTab({ onCreateEvent, onManageEvent }: AdminEventsTabP
     } finally {
       setDeleting(false)
     }
-  }
-
-  // Helper function to format date range
-  const formatDateRange = (startDate: string, endDate: string) => {
-    const start = new Date(startDate)
-    const end = new Date(endDate)
-    const options: Intl.DateTimeFormatOptions = { month: 'long', day: 'numeric', year: 'numeric' }
-
-    if (start.toDateString() === end.toDateString()) {
-      return start.toLocaleDateString('en-US', options)
-    }
-
-    const startMonth = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-    const endFormatted = end.toLocaleDateString('en-US', options)
-    return `${startMonth} - ${endFormatted}`
   }
 
   // Map event type to logo
@@ -240,11 +228,7 @@ export function AdminEventsTab({ onCreateEvent, onManageEvent }: AdminEventsTabP
                       <div className="absolute inset-0 bg-black/15 backdrop-blur-sm" />
                       <div className="relative flex items-center justify-center gap-2 py-2">
                         {(() => {
-                          const effectiveStatus = event.judging_phase === 'ended'
-                            ? 'ended'
-                            : event.status === 'active' || event.judging_phase === 'in-progress'
-                              ? 'active'
-                              : event.status
+                          const effectiveStatus = getEventDisplayStatus(event, today)
 
                           if (effectiveStatus === 'active') {
                             return (
@@ -256,7 +240,7 @@ export function AdminEventsTab({ onCreateEvent, onManageEvent }: AdminEventsTabP
                                 <span className="text-[11px] font-medium uppercase tracking-[0.15em]" style={{ color: `${sponsor.textColor}DD` }}>Active</span>
                               </>
                             )
-                          } else if (effectiveStatus === 'completed' || effectiveStatus === 'ended') {
+                          } else if (effectiveStatus === 'completed') {
                             return (
                               <>
                                 <span className="relative flex h-2 w-2">

@@ -205,8 +205,9 @@ CREATE TABLE rubric_criteria (
     display_order INTEGER NOT NULL,
     icon_name VARCHAR(50),
     guiding_question TEXT,
+    event_type VARCHAR(50) NOT NULL DEFAULT 'aggies-invent', -- 'aggies-invent' | 'problems-worth-solving'
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(display_order)
+    UNIQUE(display_order, event_type) -- display_order is unique per event type
 );
 
 COMMENT ON TABLE rubric_criteria IS 'Scoring categories (Communication, Funding, Presentation, Cohesion)';
@@ -424,11 +425,21 @@ CREATE TRIGGER trigger_calculate_time_spent BEFORE UPDATE ON score_submissions
 -- SEED DATA - Default Rubric Criteria
 -- ============================================================================
 
-INSERT INTO rubric_criteria (name, short_name, description, max_score, display_order, icon_name, guiding_question) VALUES
-('Effective Communication', 'Communication', 'Was the problem clear and important? Does the solution address the problem effectively? Are the both the near and long-term impacts addressed?', 25, 1, 'Megaphone', 'Write down thoughts here:'),
-('Would Fund/Buy Solution', 'Funding', 'Consider technical feasibility, commercial viability, and novelty of the approach.', 25, 2, 'BadgeDollarSign', 'Write down thoughts here:'),
-('Presentation Quality', 'Presentation', 'How inspiring was the video? Does the prototype add to the story? How clear, organized, and engaging are the slides?', 25, 3, 'Presentation', 'Write down thoughts here:'),
-('Overall', 'Cohesion', 'Reflect on how compelling the pitch was. How well did the team handle Q&A?', 25, 4, 'Sparkles', 'Write down thoughts here:');
+-- Aggies Invent rubric (4 criteria, 0–25 each, 100 pts total)
+INSERT INTO rubric_criteria (name, short_name, description, max_score, display_order, icon_name, guiding_question, event_type) VALUES
+('Effective Communication', 'Communication', 'Was the problem clear and important? Does the solution address the problem effectively? Are both the near and long-term impacts addressed?', 25, 1, 'Megaphone', 'Write down thoughts here:', 'aggies-invent'),
+('Would Fund/Buy Solution', 'Funding', 'Consider technical feasibility, commercial viability, and novelty of the approach.', 25, 2, 'BadgeDollarSign', 'Write down thoughts here:', 'aggies-invent'),
+('Presentation Quality', 'Presentation', 'How inspiring was the video? Does the prototype add to the story? How clear, organized, and engaging are the slides?', 25, 3, 'Presentation', 'Write down thoughts here:', 'aggies-invent'),
+('Overall', 'Cohesion', 'Reflect on how compelling the pitch was. How well did the team handle Q&A?', 25, 4, 'Sparkles', 'Write down thoughts here:', 'aggies-invent');
+
+-- Problems Worth Solving rubric (6 criteria, 1–5 each, 30 pts total)
+INSERT INTO rubric_criteria (name, short_name, description, max_score, display_order, icon_name, guiding_question, event_type) VALUES
+('Is the problem clear and concise?', 'Problem', NULL, 5, 1, 'Target', 'Write down thoughts here:', 'problems-worth-solving'),
+('Is it clear what people and/or organizations have the problem?', 'Customer', NULL, 5, 2, 'Users', 'Write down thoughts here:', 'problems-worth-solving'),
+('Is a compelling case made that customers would pay for a solution?', 'Willingness', NULL, 5, 3, 'BadgeDollarSign', 'Write down thoughts here:', 'problems-worth-solving'),
+('Is the target market large enough to support a high-growth business?', 'Market', NULL, 5, 4, 'TrendingUp', 'Write down thoughts here:', 'problems-worth-solving'),
+('Is it clear that the existing solutions to solve the problem are inadequate or absent?', 'Solutions', NULL, 5, 5, 'Lightbulb', 'Write down thoughts here:', 'problems-worth-solving'),
+('Judge''s Overall Impressions', 'Overall', NULL, 5, 6, 'Sparkles', 'Write down thoughts here:', 'problems-worth-solving');
 
 -- ============================================================================
 -- HELPER VIEWS

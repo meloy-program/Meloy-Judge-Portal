@@ -3,12 +3,14 @@
 import Image from "next/image"
 import { useState, useEffect } from "react"
 import { getTeam } from "@/lib/api/teams"
+import { getEvent } from "@/lib/api/events"
 import { getRubric, submitScore } from "@/lib/api/scores"
+import { getCurrentUser } from "@/lib/api/auth"
+import { getCommentClips, type CommentClip } from "@/lib/api/uploads"
 import type { Team, RubricCriteria, Event } from "@/lib/types/api"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Textarea } from "@/components/ui/textarea"
 import { Slider } from "@/components/ui/slider"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -21,7 +23,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { ArrowLeft, Users, Megaphone, BadgeDollarSign, Presentation, Sparkles, Save, User, Loader2 } from "lucide-react"
+import { ArrowLeft, Users, Megaphone, BadgeDollarSign, Presentation, Sparkles, Save, User, Loader2, Target, TrendingUp, Lightbulb } from "lucide-react"
 
 interface TeamDetailScreenProps {
   eventId: string
@@ -33,16 +35,24 @@ interface TeamDetailScreenProps {
   isAdmin?: boolean
 }
 
-// Icon mapping for rubric criteria
+// Icon mapping for rubric criteria — keyed by short_name.toLowerCase()
 const iconMap: Record<string, typeof Megaphone> = {
+  // Aggies Invent
   communication: Megaphone,
   funding: BadgeDollarSign,
   presentation: Presentation,
-  overall: Sparkles,
   cohesion: Sparkles,
+  // Problems Worth Solving
+  problem: Target,
+  customer: Users,
+  willingness: BadgeDollarSign,
+  market: TrendingUp,
+  solutions: Lightbulb,
+  // Shared
+  overall: Sparkles,
 }
 
-export function TeamDetailScreen({ teamId, judgeId, onBack, judgeName, isAdmin = false }: TeamDetailScreenProps) {
+export function TeamDetailScreen({ eventId, teamId, judgeId, onBack, judgeName, isAdmin = false }: TeamDetailScreenProps) {
   const [team, setTeam] = useState<Team | null>(null)
   const [event, setEvent] = useState<Event | null>(null)
   const [rubric, setRubric] = useState<RubricCriteria[]>([])
@@ -55,28 +65,36 @@ export function TeamDetailScreen({ teamId, judgeId, onBack, judgeName, isAdmin =
   const [showExitDialog, setShowExitDialog] = useState(false)
   const [showSubmitDialog, setShowSubmitDialog] = useState(false)
   const [showSuccessDialog, setShowSuccessDialog] = useState(false)
+  // Identity resolved directly from the API — never rely on prop timing from app-shell
+  const [viewerIsAdmin, setViewerIsAdmin] = useState(false)
+  const [viewerName, setViewerName] = useState<string>(judgeName || 'User')
+  const [commentClips, setCommentClips] = useState<CommentClip[]>([])
 
   useEffect(() => {
     async function fetchData() {
       try {
         setLoading(true)
         setError(null)
-        
-        const [teamData, rubricData] = await Promise.all([
+
+        // Fetch team, event, and current user identity in parallel
+        const [teamData, eventData, userData] = await Promise.all([
           getTeam(teamId),
-          getRubric()
+          getEvent(eventId),
+          getCurrentUser(),
         ])
-        
+
+        // Resolve admin identity from API — this is authoritative, not the prop
+        const apiIsAdmin = userData.user.role === 'admin' || userData.user.role === 'moderator'
+        setViewerIsAdmin(apiIsAdmin)
+        setViewerName(apiIsAdmin ? (userData.user.name || 'Admin') : (judgeName || 'Judge'))
+
         setTeam(teamData.team)
+        setEvent(eventData.event)
+
+        // Now fetch rubric filtered by this event's type
+        const rubricData = await getRubric(eventData.event.event_type)
         setRubric(rubricData.criteria)
-        
-        // Fetch event data to get sponsor info
-        if (teamData.team.event_id) {
-          const { getEvent } = await import('@/lib/api')
-          const eventData = await getEvent(teamData.team.event_id)
-          setEvent(eventData.event)
-        }
-        
+
         // Initialize scores with 0 for each criterion
         const initialScores = rubricData.criteria.reduce(
           (acc, criteria) => ({
@@ -86,8 +104,8 @@ export function TeamDetailScreen({ teamId, judgeId, onBack, judgeName, isAdmin =
           {},
         )
         
-        // Fetch existing scores if judge has already scored this team
-        if (judgeId) {
+        // Fetch existing scores only for judges (admins/moderators are view-only)
+        if (judgeId && !apiIsAdmin) {
           try {
             const { getExistingScores } = await import('@/lib/api/scores')
             const existingData = await getExistingScores(teamId, judgeId)
@@ -127,6 +145,14 @@ export function TeamDetailScreen({ teamId, judgeId, onBack, judgeName, isAdmin =
           }
         } else {
           setScores(initialScores)
+        }
+
+        // Fetch comment clips (for PWS events — shown to both judges and admins)
+        try {
+          const clipsData = await getCommentClips(teamId)
+          setCommentClips(clipsData.clips || [])
+        } catch {
+          // Not critical — clips may not exist yet
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load team data')
@@ -210,13 +236,6 @@ export function TeamDetailScreen({ teamId, judgeId, onBack, judgeName, isAdmin =
     onBack()
   }
 
-  const handleReflectionChange = (criteriaId: string, value: string) => {
-    setReflections((prev) => ({
-      ...prev,
-      [criteriaId]: value,
-    }))
-  }
-
   const handleExitAttempt = () => {
     setShowExitDialog(true)
   }
@@ -288,8 +307,8 @@ export function TeamDetailScreen({ teamId, judgeId, onBack, judgeName, isAdmin =
                   <User className="h-4 w-4 sm:h-5 sm:w-5 text-white" />
                 </div>
                 <div className="flex flex-col">
-                  <span className="text-xs sm:text-sm font-semibold text-white leading-tight">{judgeName || "User"}</span>
-                  <span className="text-[10px] sm:text-xs text-white/70">{isAdmin ? "Admin" : "Judge"}</span>
+                  <span className="text-xs sm:text-sm font-semibold text-white leading-tight">{viewerName}</span>
+                  <span className="text-[10px] sm:text-xs text-white/70">{viewerIsAdmin ? "Admin" : "Judge"}</span>
                 </div>
               </div>
             </div>
@@ -361,8 +380,7 @@ export function TeamDetailScreen({ teamId, judgeId, onBack, judgeName, isAdmin =
           <div>
             <h2 className="text-[2rem] font-semibold text-slate-900">Judging Rubric</h2>
             <p className="mt-3 text-lg text-slate-500">
-              Score each pillar out of 25 points. The guiding question under every slider helps you validate the score with
-              the official rubric.
+              Score each criterion out of {rubric[0]?.max_score ?? 25} points. Use the notes field under each criterion to record your observations.
             </p>
           </div>
 
@@ -373,47 +391,55 @@ export function TeamDetailScreen({ teamId, judgeId, onBack, judgeName, isAdmin =
 
               return (
                 <Card key={criteria.id} className="relative overflow-hidden rounded-[28px] border-2 border-primary/25 bg-white/95 shadow-md transition-all hover:-translate-y-0.5 hover:shadow-xl hover:border-primary/40">
-                  <CardHeader className="flex flex-col gap-5 p-7 pb-5">
-                    <div className="flex flex-wrap items-start justify-between gap-5">
-                      <div className="flex flex-1 items-start gap-4">
-                        <span className="flex h-16 w-16 items-center justify-center rounded-2xl bg-linear-to-br from-primary/20 to-primary/10">
-                          <Icon className="h-8 w-8 text-primary" />
-                        </span>
-                        <div className="space-y-1.5">
-                          <CardTitle className="text-[1.5rem] font-semibold text-slate-900">{criteria.name}</CardTitle>
-                          <CardDescription className="text-lg text-slate-600">{criteria.description}</CardDescription>
-                        </div>
+                  <CardHeader className="p-6 sm:p-7 pb-4 sm:pb-5">
+                    {/* Row 1: solid-maroon icon (top-left) + score pill (top-right) */}
+                    <div className="flex items-start justify-between mb-5">
+                      <div
+                        className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl shadow-sm"
+                        style={{ background: 'linear-gradient(to bottom, #500000, #3d0000)' }}
+                      >
+                        <Icon className="h-6 w-6 text-white" />
                       </div>
-                      <Badge className="rounded-full bg-primary/10 px-5 py-3 text-lg font-semibold text-primary shadow-sm">
-                        {score}/{criteria.max_score}
-                      </Badge>
+                      <div className="flex items-baseline gap-0.5 rounded-full border-2 border-primary/20 bg-primary/5 px-5 py-2">
+                        <span className="text-2xl font-bold leading-none text-primary">{score}</span>
+                        <span className="text-base font-medium text-primary/50">/{criteria.max_score}</span>
+                      </div>
+                    </div>
+
+                    {/* Row 2: title + description, centered, min-height keeps all cards the same */}
+                    <div className="min-h-[5rem] flex flex-col items-center justify-center text-center space-y-2 px-2">
+                      <CardTitle className="text-[1.35rem] font-semibold text-slate-900 leading-snug">
+                        {criteria.name}
+                      </CardTitle>
+                      {criteria.description && (
+                        <CardDescription className="text-base text-slate-500 leading-relaxed">
+                          {criteria.description}
+                        </CardDescription>
+                      )}
                     </div>
                   </CardHeader>
-                  <CardContent className="space-y-5 px-7 pb-7">
-                    <div className="space-y-4">
+
+                  <CardContent className="px-6 sm:px-7 pb-6 sm:pb-7 pt-0 space-y-5">
+                    {/* Divider */}
+                    <div className="h-px bg-primary/10" />
+
+                    {/* Slider */}
+                    <div className="space-y-3 pt-1">
                       <Slider
                         value={[score]}
                         onValueChange={(value) => handleScoreChange(criteria.id, value)}
                         max={criteria.max_score}
                         step={1}
-                        className="w-full py-4 **:data-[slot=slider-track]:h-2 **:data-[slot=slider-thumb]:size-6 sm:**:data-[slot=slider-track]:h-2.5 sm:**:data-[slot=slider-thumb]:size-8"
+                        disabled={viewerIsAdmin}
+                        className="w-full py-4 **:data-[slot=slider-track]:h-2 **:data-[slot=slider-thumb]:size-6 sm:**:data-[slot=slider-track]:h-2.5 sm:**:data-[slot=slider-thumb]:size-8 disabled:opacity-60"
                         aria-label={`${criteria.name} score`}
                       />
-                      <div className="flex justify-between text-base font-semibold text-slate-500">
-                        <span className="text-slate-400">0</span>
-                        <span className="text-slate-600">{criteria.max_score}</span>
+                      <div className="flex justify-between text-sm font-semibold text-slate-400">
+                        <span>0</span>
+                        <span>{criteria.max_score}</span>
                       </div>
                     </div>
-                    <div className="space-y-3 rounded-[22px] border border-slate-200/70 bg-slate-50/70 px-5 py-4">
-                      <p className="text-base font-semibold text-slate-600">{criteria.guiding_question}</p>
-                      <Textarea
-                        value={reflections[criteria.id] ?? ""}
-                        onChange={(event) => handleReflectionChange(criteria.id, event.target.value)}
-                        placeholder="Jot quick notes here..."
-                        rows={3}
-                        className="text-base"
-                      />
-                    </div>
+
                   </CardContent>
                 </Card>
               )
@@ -421,60 +447,83 @@ export function TeamDetailScreen({ teamId, judgeId, onBack, judgeName, isAdmin =
           </div>
         </section>
 
-        <Card className="mt-12 overflow-hidden rounded-[28px] border-2 border-primary/25 bg-white/95 shadow-lg">
-          <CardHeader className="p-8 pb-4">
-            <CardTitle className="text-[1.75rem] font-semibold text-slate-900">Additional Comments</CardTitle>
-            <CardDescription className="mt-2 text-lg text-slate-600">
-              Share any observations or notes for yourself.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="p-8 pt-4">
-            <Textarea
-              placeholder="Enter your feedback..."
-              value={comments}
-              onChange={(event) => setComments(event.target.value)}
-              rows={6}
-              className="text-lg"
-            />
-          </CardContent>
-        </Card>
 
-        <div className="mt-12 flex flex-col gap-5 sm:flex-row">
+        {/* Written comments (uploaded sheets) */}
+        {commentClips.length > 0 && (
+          <section className="mt-10">
+            <h2 className="mb-4 text-2xl font-bold text-slate-900">Written Comments</h2>
+            <div className="space-y-4">
+              {commentClips.map(clip => (
+                <Card key={clip.id} className="overflow-hidden rounded-2xl shadow-md">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base font-semibold text-slate-700">
+                      {clip.criteria_name}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="pt-0">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={clip.clipUrl}
+                      alt={`Handwritten comment for ${clip.criteria_name}`}
+                      className="w-full rounded-lg border border-gray-200"
+                      loading="lazy"
+                    />
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Admin view notice */}
+        {viewerIsAdmin && (
+          <div className="mt-12 rounded-2xl border-2 border-amber-200 bg-amber-50 px-6 py-4 text-center">
+            <p className="text-base font-semibold text-amber-800">Admin View — Scoring is view-only. Only judges can submit scores.</p>
+          </div>
+        )}
+
+        <div className="mt-6 flex flex-col gap-5 sm:flex-row">
           <Button
             variant="outline"
             onClick={handleExitAttempt}
             className="h-16 flex-1 rounded-2xl border-2 border-slate-300 text-lg font-semibold text-slate-600 hover:border-primary/40 hover:bg-primary/5"
           >
-            Cancel
+            {viewerIsAdmin ? "Back to Event" : "Cancel"}
           </Button>
-          <Button
-            onClick={handleSubmit}
-            disabled={isSaving}
-            className="h-16 flex-1 rounded-2xl bg-primary text-lg font-semibold text-white shadow-lg transition-transform hover:-translate-y-0.5 hover:bg-primary/90 hover:shadow-xl disabled:opacity-70"
-          >
-            <Save className="mr-2 h-6 w-6" />
-            {isSaving ? "Saving..." : "Submit Scores"}
-          </Button>
+          {!viewerIsAdmin && (
+            <Button
+              onClick={handleSubmit}
+              disabled={isSaving}
+              className="h-16 flex-1 rounded-2xl bg-primary text-lg font-semibold text-white shadow-lg transition-transform hover:-translate-y-0.5 hover:bg-primary/90 hover:shadow-xl disabled:opacity-70"
+            >
+              <Save className="mr-2 h-6 w-6" />
+              {isSaving ? "Saving..." : "Submit Scores"}
+            </Button>
+          )}
         </div>
       </main>
 
       <AlertDialog open={showExitDialog} onOpenChange={setShowExitDialog}>
         <AlertDialogContent className="max-w-2xl rounded-3xl border-2 border-white/30 bg-white/90 backdrop-blur-xl shadow-2xl p-0">
           <AlertDialogHeader className="p-8 pb-4">
-            <AlertDialogTitle className="text-3xl font-semibold text-slate-900">Exit Without Saving?</AlertDialogTitle>
+            <AlertDialogTitle className="text-3xl font-semibold text-slate-900">
+              {viewerIsAdmin ? "Back to Event?" : "Exit Without Saving?"}
+            </AlertDialogTitle>
             <AlertDialogDescription className="mt-4 text-xl text-slate-600 leading-relaxed">
-              Your progress will not be saved. To submit your scores, please use the Submit Scores button.
+              {viewerIsAdmin
+                ? "Return to the team roster for this event."
+                : "Your progress will not be saved. To submit your scores, please use the Submit Scores button."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="flex-col gap-3 p-8 pt-4 sm:flex-row">
             <AlertDialogCancel className="h-16 flex-1 rounded-2xl border-2 border-slate-300 text-lg font-semibold text-slate-600 hover:border-primary/40 hover:bg-primary/5">
-              Stay and Continue
+              {viewerIsAdmin ? "Stay" : "Stay and Continue"}
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={confirmExit}
               className="h-16 flex-1 rounded-2xl bg-primary text-lg font-semibold text-white shadow-lg transition-transform hover:-translate-y-0.5 hover:bg-primary/90 hover:shadow-xl"
             >
-              Exit Without Saving
+              {viewerIsAdmin ? "Go Back" : "Exit Without Saving"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

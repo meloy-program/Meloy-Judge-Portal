@@ -178,6 +178,8 @@ export default function EventDetailPage() {
       onNavigate={handleNavigate}
       onManageEvent={handleManageEvent}
       onOpenModerator={() => router.push(`/events/${eventId}/moderator`)}
+      onOpenCommentSheets={() => router.push(`/events/${eventId}/comment-sheets`)}
+      onOpenUploadSheets={() => router.push(`/events/${eventId}/comment-sheets/upload`)}
       isAdmin={userRole === 'admin' || userRole === 'moderator'}
       judgeName={userName}
     />

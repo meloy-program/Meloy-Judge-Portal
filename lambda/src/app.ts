@@ -12,7 +12,8 @@ import {
     usersRoutes,
     adminRoutes,
     sponsorsRoutes,
-    judgeProfilesRoutes
+    judgeProfilesRoutes,
+    uploadsRoutes,
 } from './routes';
 
 const app = express();
@@ -44,6 +45,7 @@ app.use('/users', usersRoutes);
 app.use('/admin', adminRoutes);
 app.use('/sponsors', sponsorsRoutes);
 app.use('/', judgeProfilesRoutes); // Judge profiles routes (includes /events/:eventId/judge-profiles)
+app.use('/uploads', uploadsRoutes);
 
 // ==================== ERROR HANDLING ====================
 

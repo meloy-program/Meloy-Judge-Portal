@@ -27,6 +27,7 @@ import { getEvent, updateEvent } from "@/lib/api/events"
 import { createSponsor, updateSponsor } from "@/lib/api/sponsors"
 import { getEventJudgeProfiles, createJudgeProfile, deleteJudgeProfile, type JudgeProfile } from "@/lib/api/judges"
 import type { Event } from "@/lib/types/api"
+import { getEventDate, getEventDateRangeError } from "@/lib/event-dates"
 import { DetailsTab } from "./tabs/details-tab"
 import { SponsorTab } from "./tabs/sponsor-tab"
 import { JudgesTab } from "./tabs/judges-tab"
@@ -88,9 +89,9 @@ export function EventManagerScreen({ eventId, userId, onBack, onSave, userName, 
         // Set event details
         setEventName(eventData.name)
         setEventType(eventData.event_type as EventType)
-        // Convert ISO dates to YYYY-MM-DD format for date inputs
-        setStartDate(eventData.start_date ? eventData.start_date.split('T')[0] : '')
-        setEndDate(eventData.end_date ? eventData.end_date.split('T')[0] : '')
+        // Keep the stored calendar dates unchanged when editing.
+        setStartDate(getEventDate(eventData.start_date))
+        setEndDate(getEventDate(eventData.end_date))
         setEventLocation(eventData.location)
         setEventDescription(eventData.description)
         
@@ -209,6 +210,11 @@ export function EventManagerScreen({ eventId, userId, onBack, onSave, userName, 
   const handleSaveDetails = async () => {
     try {
       setSaving(true)
+      const dateError = getEventDateRangeError(startDate, endDate)
+      if (dateError) {
+        alert(dateError)
+        return
+      }
       await updateEvent(eventId, {
         name: eventName,
         event_type: eventType,

@@ -39,7 +39,7 @@ export async function getTeamScores(eventId: string): Promise<{
         name: string;
         projectTitle: string;
         status: string;
-        order: number;
+        order: number | null;
         scores: Array<{
             judgeId: string;
             judgeName: string;
@@ -63,6 +63,17 @@ export async function updateTeamStatus(
     status: 'waiting' | 'active' | 'completed'
 ): Promise<{ team: any }> {
     return patch(`/teams/${teamId}/status`, { status });
+}
+
+/**
+ * Update team presentation order (moderator/admin only, PWS events)
+ * Automatically swaps with any team that already holds the requested order.
+ */
+export async function updateTeamPresentationOrder(
+    teamId: string,
+    presentationOrder: number
+): Promise<{ team: any }> {
+    return patch(`/teams/${teamId}/presentation-order`, { presentation_order: presentationOrder });
 }
 
 /**

@@ -28,6 +28,8 @@ import type { Screen } from "@/components/app-shell"
 import { Calendar, MapPin, Users, Shield, ChevronRight, User, Loader2, LogOut, Menu, CalendarDays } from "lucide-react"
 import { getEvents, getCurrentUser } from "@/lib/api"
 import type { Event } from "@/lib/types/api"
+import { formatEventDateRange as formatDateRange, getEventDisplayStatus } from "@/lib/event-dates"
+import { useEventToday } from "@/hooks/use-event-today"
 
 interface DashboardScreenProps {
   onSelectEvent: (eventId: string) => void
@@ -46,6 +48,7 @@ export function DashboardScreen({ onSelectEvent, onNavigate, isAdmin, shouldFetc
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [userRole, setUserRole] = useState<string>('judge')
+  const today = useEventToday()
 
   useEffect(() => {
     // Don't fetch if we shouldn't (waiting for token validation)
@@ -93,21 +96,6 @@ export function DashboardScreen({ onSelectEvent, onNavigate, isAdmin, shouldFetc
 
   // Get user name from Auth0 or fallback
   const userName = auth0User?.name || auth0User?.email?.split('@')[0] || 'User'
-
-  // Helper function to format date range
-  const formatDateRange = (startDate: string, endDate: string) => {
-    const start = new Date(startDate)
-    const end = new Date(endDate)
-    const options: Intl.DateTimeFormatOptions = { month: 'long', day: 'numeric', year: 'numeric' }
-
-    if (start.toDateString() === end.toDateString()) {
-      return start.toLocaleDateString('en-US', options)
-    }
-
-    const startMonth = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-    const endFormatted = end.toLocaleDateString('en-US', options)
-    return `${startMonth} - ${endFormatted}`
-  }
 
   // Map event type to logo
   const getEventLogo = (eventType: string) => {
@@ -332,12 +320,7 @@ export function DashboardScreen({ onSelectEvent, onNavigate, isAdmin, shouldFetc
                         <div className="absolute inset-0 bg-black/15 backdrop-blur-sm" />
                         <div className="relative flex items-center justify-center gap-2 py-2">
                           {(() => {
-                            // Derive effective status: judging_phase takes priority for ended events
-                            const effectiveStatus = event.judging_phase === 'ended'
-                              ? 'ended'
-                              : event.status === 'active' || event.judging_phase === 'in-progress'
-                                ? 'active'
-                                : event.status // fallback to raw status
+                            const effectiveStatus = getEventDisplayStatus(event, today)
 
                             if (effectiveStatus === 'active') {
                               return (
@@ -349,7 +332,7 @@ export function DashboardScreen({ onSelectEvent, onNavigate, isAdmin, shouldFetc
                                   <span className="text-[11px] font-medium uppercase tracking-[0.15em]" style={{ color: `${sponsor.textColor}DD` }}>Active</span>
                                 </>
                               )
-                            } else if (effectiveStatus === 'completed' || effectiveStatus === 'ended') {
+                            } else if (effectiveStatus === 'completed') {
                               return (
                                 <>
                                   <span className="relative flex h-2 w-2">
@@ -375,9 +358,12 @@ export function DashboardScreen({ onSelectEvent, onNavigate, isAdmin, shouldFetc
                   </div>
 
                   <CardHeader className="relative px-6 pb-3 pt-4">
-                    <CardTitle className="text-[1.3rem] font-semibold leading-snug text-[#500000] transition-colors duration-200 group-hover:text-[#3d0000] line-clamp-2 mb-3">
-                      {event.name}
-                    </CardTitle>
+                    {/* Fixed-height title area so cards with 1-line vs 2-line titles stay aligned */}
+                    <div className="min-h-[3.75rem] mb-3 flex items-start">
+                      <CardTitle className="text-[1.3rem] font-semibold leading-snug text-[#500000] transition-colors duration-200 group-hover:text-[#3d0000] line-clamp-2">
+                        {event.name}
+                      </CardTitle>
+                    </div>
                     <CardDescription className="flex items-center gap-3 text-base font-medium text-[#500000]/80">
                       <Calendar className="h-5 w-5 text-primary" />
                       {formatDateRange(event.start_date, event.end_date)}

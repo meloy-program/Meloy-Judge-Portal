@@ -6,11 +6,12 @@ import { get, post } from './client';
 import type { ScoreSubmission, RubricResponse } from '../types/api';
 
 /**
- * Get rubric criteria
- * Note: Rubric is global, not per-event
+ * Get rubric criteria for a specific event type
+ * @param eventType - 'aggies-invent' | 'problems-worth-solving' (default: 'aggies-invent')
  */
-export async function getRubric(): Promise<RubricResponse> {
-    return get<RubricResponse>('/rubric/rubric');
+export async function getRubric(eventType?: string): Promise<RubricResponse> {
+    const qs = eventType ? `?event_type=${encodeURIComponent(eventType)}` : '';
+    return get<RubricResponse>(`/rubric/rubric${qs}`);
 }
 
 /**

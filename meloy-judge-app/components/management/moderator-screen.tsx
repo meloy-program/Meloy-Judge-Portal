@@ -31,8 +31,10 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
-import { getEvent, getTeamScores, updateTeamStatus, updateEventPhase, getEventAwards, assignTop3Awards } from "@/lib/api"
-import type { Event } from "@/lib/types/api"
+import { getEvent, getRubric, getTeamScores, updateTeamStatus, updateEventPhase, getEventAwards, assignTop3Awards, updateTeamPresentationOrder } from "@/lib/api"
+import type { Event, RubricCriteria } from "@/lib/types/api"
+import { useAuthToken } from "@/lib/auth-context"
+import { getScoringLimits, getScorePercentage } from "@/lib/event-judging"
 import {
   Select,
   SelectContent,
@@ -66,7 +68,7 @@ interface Team {
   name: string
   projectTitle: string
   status: TeamStatus
-  order: number
+  order: number | null
   scores: TeamScore[]
 }
 
@@ -74,6 +76,8 @@ export function ModeratorScreen({ eventId, onBack, userName }: ModeratorScreenPr
   const [teams, setTeams] = useState<Team[]>([])
   const [judges, setJudges] = useState<Judge[]>([])
   const [event, setEvent] = useState<Event | null>(null)
+  const [criteria, setCriteria] = useState<RubricCriteria[]>([])
+  const { isTokenValid, isValidating } = useAuthToken()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [eventStatus, setEventStatus] = useState<"not-started" | "in-progress" | "ended">("in-progress")
@@ -123,9 +127,15 @@ export function ModeratorScreen({ eventId, onBack, userName }: ModeratorScreenPr
     }
   }, [teams])
 
-  // Fetch data from RDS with real-time updates
+  // Refresh event data through the authenticated API.
   useEffect(() => {
+    if (!isTokenValid || isValidating) return
+    let cancelled = false
+    let fetching = false
+
     async function fetchData() {
+      if (fetching) return
+      fetching = true
       try {
         // Only show loading spinner on initial load, not on background refreshes
         if (isInitialLoad) {
@@ -138,15 +148,27 @@ export function ModeratorScreen({ eventId, onBack, userName }: ModeratorScreenPr
           getEvent(eventId),
           getTeamScores(eventId)
         ])
+        const rubricData = await getRubric(eventData.event.event_type)
+        if (cancelled) return
         setEvent(eventData.event)
+        setCriteria(rubricData.criteria)
         
-        // Sort teams once by name (alphabetically) and maintain that order
+        // PWS follows the presentation queue; Aggies Invent stays alphabetical.
+        const isPWS = eventData.event?.event_type?.includes('problems-worth-solving') ?? false
         const sortedTeams = scoresData.teams
           .map((t: any) => ({
             ...t,
             status: t.status as TeamStatus
           }))
-          .sort((a: any, b: any) => a.name.localeCompare(b.name))
+          .sort((a: any, b: any) => {
+            if (isPWS) {
+              // Sort PWS teams by presentation_order; unassigned teams go last
+              const aOrder = a.order ?? 9999
+              const bOrder = b.order ?? 9999
+              if (aOrder !== bOrder) return aOrder - bOrder
+            }
+            return a.name.localeCompare(b.name)
+          })
         
         setTeams(sortedTeams)
         setJudges(scoresData.judges)
@@ -154,13 +176,16 @@ export function ModeratorScreen({ eventId, onBack, userName }: ModeratorScreenPr
         setEventStatus(phase as 'not-started' | 'in-progress' | 'ended')
         setLastUpdate(new Date())
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load moderator data')
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load moderator data')
       } finally {
-        if (isInitialLoad) {
-          setLoading(false)
-          setIsInitialLoad(false)
+        fetching = false
+        if (!cancelled) {
+          if (isInitialLoad) {
+            setLoading(false)
+            setIsInitialLoad(false)
+          }
+          setIsRefreshing(false)
         }
-        setIsRefreshing(false)
       }
     }
     fetchData()
@@ -170,8 +195,11 @@ export function ModeratorScreen({ eventId, onBack, userName }: ModeratorScreenPr
     const intervalId = setInterval(fetchData, 5000)
 
     // Cleanup on unmount
-    return () => clearInterval(intervalId)
-  }, [eventId, isInitialLoad])
+    return () => {
+      cancelled = true
+      clearInterval(intervalId)
+    }
+  }, [eventId, isInitialLoad, isTokenValid, isValidating])
 
   // Fetch awards when judging ends
   useEffect(() => {
@@ -217,9 +245,32 @@ export function ModeratorScreen({ eventId, onBack, userName }: ModeratorScreenPr
   const teamsActive = teams.filter((t) => t.status === "active").length
   const teamsWaiting = teams.filter((t) => t.status === "waiting").length
   const completionPercent = teams.length > 0 ? Math.round((teamsCompleted / teams.length) * 100) : 0
+  const { maxScorePerJudge, maxScorePerTeam } = getScoringLimits(criteria, judges.length)
 
   // Check if all teams are completed
   const allTeamsCompleted = teams.length > 0 && teams.every(team => team.status === "completed")
+
+  const isPWSEvent = event?.event_type?.includes('problems-worth-solving') ?? false
+
+  const handlePresentationOrderChange = async (teamId: string, newOrder: number) => {
+    try {
+      await updateTeamPresentationOrder(teamId, newOrder)
+      // Optimistically update local state — mirror the swap logic from the backend
+      setTeams(prev => {
+        const targetTeam = prev.find(t => t.id === teamId)
+        const oldOrder = targetTeam?.order ?? null
+        const updated = prev.map(t => {
+          if (t.id === teamId) return { ...t, order: newOrder }
+          // If another team held that position, give it the displaced team's old order
+          if (t.order === newOrder) return { ...t, order: oldOrder }
+          return t
+        })
+        return updated.sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999))
+      })
+    } catch (err) {
+      console.error('Failed to update presentation order:', err)
+    }
+  }
 
   const handleStatusChange = async (teamId: string, newStatus: TeamStatus) => {
     try {
@@ -465,6 +516,34 @@ export function ModeratorScreen({ eventId, onBack, userName }: ModeratorScreenPr
                         <p className="text-sm text-slate-600">{team.projectTitle}</p>
                       </div>
 
+                      {/* Presentation Order - PWS events only */}
+                      {isPWSEvent && (
+                        <div className="mb-4">
+                          <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2 text-center">
+                            Presentation Order
+                          </p>
+                          <Select
+                            value={team.order ? String(team.order) : ""}
+                            onValueChange={(val) => handlePresentationOrderChange(team.id, Number(val))}
+                            disabled={eventStatus === "ended"}
+                          >
+                            <SelectTrigger className="h-10 rounded-xl border-2 border-primary/20 text-sm font-medium disabled:opacity-50">
+                              <SelectValue placeholder="Assign position…" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {Array.from({ length: teams.length }, (_, i) => i + 1).map((pos) => {
+                                const takenBy = teams.find(t => t.order === pos && t.id !== team.id)
+                                return (
+                                  <SelectItem key={pos} value={String(pos)}>
+                                    Position {pos}{takenBy ? ` ↔ swap with ${takenBy.name}` : ""}
+                                  </SelectItem>
+                                )
+                              })}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+
                       {/* Status controls */}
                       <div className="flex gap-2">
                         <Button
@@ -523,7 +602,11 @@ export function ModeratorScreen({ eventId, onBack, userName }: ModeratorScreenPr
                   <div>
                     <CardTitle className="text-xl font-semibold text-slate-900">Live Scoring</CardTitle>
                     <CardDescription className="text-base text-slate-600">
-                      Real-time scores from all judges (max 400 points per team)
+                      {maxScorePerJudge > 0
+                        ? judges.length > 0
+                          ? `${judges.length} ${judges.length === 1 ? 'judge' : 'judges'} × ${maxScorePerJudge} points per judge (max ${maxScorePerTeam} points per team)`
+                          : `No judges assigned · ${maxScorePerJudge} points per judge`
+                        : 'No rubric configured for this event'}
                     </CardDescription>
                   </div>
                 </div>
@@ -562,7 +645,7 @@ export function ModeratorScreen({ eventId, onBack, userName }: ModeratorScreenPr
                   <tbody>
                     {[...teams].sort((a, b) => getTeamTotal(b) - getTeamTotal(a)).map((team, index) => {
                       const total = getTeamTotal(team)
-                      const percentage = Math.round((total / 400) * 100)
+                      const percentage = Math.round(getScorePercentage(total, maxScorePerTeam))
                       return (
                         <tr key={team.id} className="bg-primary/5 hover:bg-primary/10 transition-all duration-300 border-b border-primary/10 last:border-0">
                           <td className="bg-white px-4 py-3 border-r border-primary/10">
@@ -586,11 +669,11 @@ export function ModeratorScreen({ eventId, onBack, userName }: ModeratorScreenPr
                                 {score.score !== null ? (
                                   <>
                                     <span className="text-base font-bold text-slate-900">{score.score}</span>
-                                    <span className="text-xs text-slate-500">/100</span>
+                                    <span className="text-xs text-slate-500">/{maxScorePerJudge || '—'}</span>
                                     <div className="mt-1.5 h-1.5 w-full bg-slate-200 rounded-full overflow-hidden max-w-[80px]">
                                       <div
                                         className="h-full rounded-full bg-linear-to-r from-primary to-[#3d0000] transition-all duration-500"
-                                        style={{ width: `${score.score}%` }}
+                                        style={{ width: `${getScorePercentage(score.score, maxScorePerJudge)}%` }}
                                       />
                                     </div>
                                   </>
@@ -606,12 +689,12 @@ export function ModeratorScreen({ eventId, onBack, userName }: ModeratorScreenPr
                             <div className="text-center">
                               <span className="text-lg font-bold text-slate-900">{total}</span>
                               <br />
-                              <span className="text-xs text-slate-500">/400</span>
+                              <span className="text-xs text-slate-500">/{maxScorePerTeam || '—'}</span>
                             </div>
                           </td>
                           <td className="bg-white px-3 py-3 transition-all duration-500">
                             <div className="text-center">
-                              <span className="text-base font-semibold text-primary">{percentage}%</span>
+                              <span className="text-base font-semibold text-primary">{maxScorePerTeam > 0 ? `${percentage}%` : '—'}</span>
                             </div>
                           </td>
                         </tr>
