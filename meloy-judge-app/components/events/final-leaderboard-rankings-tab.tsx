@@ -13,14 +13,21 @@ import {
     Activity,
     User
 } from "lucide-react"
-import type { DetailedLeaderboardEntry } from "@/lib/types/api"
+import type { DetailedLeaderboardEntry, RubricCriteria, SummaryJudge } from "@/lib/types/api"
+import { getScoringLimits, getScorePercentage } from "@/lib/event-judging"
+import { getConsensusLevel } from "@/lib/judging-summary"
 
 interface RankingsTabProps {
     leaderboard: DetailedLeaderboardEntry[]
+    rubric: RubricCriteria[]
+    judges: SummaryJudge[]
+    eventType: string
 }
 
-export function FinalLeaderboardRankingsTab({ leaderboard }: RankingsTabProps) {
+export function FinalLeaderboardRankingsTab({ leaderboard, rubric, judges: allJudges, eventType }: RankingsTabProps) {
     const [expandedTeams, setExpandedTeams] = useState<Set<string>>(new Set())
+    const { maxScorePerJudge, maxScorePerTeam } = getScoringLimits(rubric, allJudges.length)
+    const participantLabel = eventType === 'problems-worth-solving' ? 'Student' : 'Team'
 
     const toggleTeamExpanded = (teamId: string) => {
         setExpandedTeams(prev => {
@@ -33,11 +40,6 @@ export function FinalLeaderboardRankingsTab({ leaderboard }: RankingsTabProps) {
             return newSet
         })
     }
-
-    // Get all unique judges
-    const allJudges = leaderboard.length > 0 && leaderboard[0].judge_scores.length > 0
-        ? leaderboard[0].judge_scores.map(js => ({ id: js.judge_id, name: js.judge_name }))
-        : []
 
     if (leaderboard.length === 0) {
         return (
@@ -56,9 +58,9 @@ export function FinalLeaderboardRankingsTab({ leaderboard }: RankingsTabProps) {
     return (
         <div className="space-y-6">
             <div className="pt-2">
-                <h2 className="text-[2.2rem] font-semibold text-slate-900">Team Rankings</h2>
+                <h2 className="text-[2.2rem] font-semibold text-slate-900">{participantLabel} Rankings</h2>
                 <p className="mt-2 text-lg text-slate-500">
-                    Complete scoring breakdown with judge-by-judge details
+                    {allJudges.length} {allJudges.length === 1 ? 'judge' : 'judges'} · {maxScorePerJudge} points per judge · {maxScorePerTeam} possible points per {participantLabel.toLowerCase()}
                 </p>
             </div>
 
@@ -74,7 +76,7 @@ export function FinalLeaderboardRankingsTab({ leaderboard }: RankingsTabProps) {
                                             <p className="text-sm font-semibold text-white text-center">Rank</p>
                                         </th>
                                         <th className="bg-linear-to-br from-primary to-[#3d0000] px-6 py-4 text-left min-w-[240px] border-r border-white/20">
-                                            <p className="text-sm font-semibold text-white">Team</p>
+                                            <p className="text-sm font-semibold text-white">{participantLabel}</p>
                                         </th>
                                         {allJudges.map((judge) => (
                                             <th key={judge.id} className="bg-linear-to-br from-primary to-[#3d0000] px-5 py-4 border-r border-white/20 min-w-[120px]">
@@ -98,7 +100,7 @@ export function FinalLeaderboardRankingsTab({ leaderboard }: RankingsTabProps) {
                                 <tbody>
                                     {leaderboard.map((team) => {
                                         const isExpanded = expandedTeams.has(team.team_id)
-                                        const consensusLevel = team.score_stddev < 5 ? 'high' : team.score_stddev < 10 ? 'medium' : 'low'
+                                        const consensusLevel = getConsensusLevel(team.score_stddev, maxScorePerJudge, team.judges_scored)
 
                                         return (
                                             <React.Fragment key={team.team_id}>
@@ -115,7 +117,7 @@ export function FinalLeaderboardRankingsTab({ leaderboard }: RankingsTabProps) {
                                                                             : "bg-slate-100 text-slate-600"
                                                                     }`}
                                                             >
-                                                                {team.rank}
+                                                                {team.judges_scored > 0 ? team.rank : '—'}
                                                             </div>
                                                         </div>
                                                     </td>
@@ -135,11 +137,11 @@ export function FinalLeaderboardRankingsTab({ leaderboard }: RankingsTabProps) {
                                                                     {judgeScore ? (
                                                                         <>
                                                                             <span className="text-lg font-bold text-slate-900">{judgeScore.total_score}</span>
-                                                                            <span className="text-sm text-slate-500">/100</span>
+                                                                            <span className="text-sm text-slate-500">/{maxScorePerJudge || '—'}</span>
                                                                             <div className="mt-2 h-2 w-full bg-slate-200 rounded-full overflow-hidden max-w-[90px]">
                                                                                 <div
                                                                                     className="h-full rounded-full bg-linear-to-r from-primary to-[#3d0000] transition-all duration-500"
-                                                                                    style={{ width: `${judgeScore.total_score}%` }}
+                                                                                    style={{ width: `${getScorePercentage(judgeScore.total_score, maxScorePerJudge)}%` }}
                                                                                 />
                                                                             </div>
                                                                         </>
@@ -154,29 +156,32 @@ export function FinalLeaderboardRankingsTab({ leaderboard }: RankingsTabProps) {
                                                     })}
                                                     <td className="bg-white px-5 py-4 border-r border-primary/10">
                                                         <div className="text-center">
-                                                            <span className="text-xl font-bold text-slate-900">{team.avg_score.toFixed(1)}</span>
+                                                            <span className="text-xl font-bold text-slate-900">{team.judges_scored > 0 ? team.avg_score.toFixed(1) : '—'}</span>
                                                             <br />
-                                                            <span className="text-sm text-slate-500">/100</span>
+                                                            <span className="text-sm text-slate-500">/{maxScorePerJudge || '—'}</span>
                                                         </div>
                                                     </td>
                                                     <td className="bg-white px-5 py-4 border-r border-primary/10">
                                                         <div className="text-center">
                                                             <Badge className="bg-primary text-white font-bold text-lg px-4 py-1.5">
-                                                                {team.total_score}
+                                                                {team.judges_scored > 0 ? team.total_score : '—'}/{maxScorePerTeam || '—'}
                                                             </Badge>
+                                                            <p className="mt-1 text-xs text-slate-500">{team.judges_scored}/{allJudges.length} judges scored</p>
                                                         </div>
                                                     </td>
                                                     <td className="bg-white px-5 py-4 border-r border-primary/10">
                                                         <div className="flex justify-center">
                                                             <Badge
-                                                                className={`text-sm px-3 py-1.5 ${consensusLevel === 'high'
+                                                                className={`text-sm px-3 py-1.5 ${consensusLevel === 'insufficient'
+                                                                    ? 'bg-slate-100 text-slate-600'
+                                                                    : consensusLevel === 'high'
                                                                     ? 'bg-emerald-100 text-emerald-700'
                                                                     : consensusLevel === 'medium'
                                                                         ? 'bg-blue-100 text-blue-700'
                                                                         : 'bg-amber-100 text-amber-700'
                                                                     }`}
                                                             >
-                                                                {consensusLevel === 'high' ? (
+                                                                {consensusLevel === 'insufficient' ? 'Pending' : consensusLevel === 'high' ? (
                                                                     <>
                                                                         <CheckCircle className="h-4 w-4 mr-1 inline" />
                                                                         High
@@ -214,7 +219,7 @@ export function FinalLeaderboardRankingsTab({ leaderboard }: RankingsTabProps) {
                                                 </tr>
                                                 {isExpanded && (
                                                     <tr className="bg-slate-50">
-                                                        <td colSpan={allJudges.length + 7} className="px-8 py-6">
+                                                        <td colSpan={allJudges.length + 6} className="px-4 sm:px-8 py-6">
                                                             <div className="space-y-5">
                                                                 <h4 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
                                                                     <Target className="h-5 w-5 text-primary" />
@@ -238,7 +243,7 @@ export function FinalLeaderboardRankingsTab({ leaderboard }: RankingsTabProps) {
                                                                                     </div>
                                                                                 </div>
                                                                                 <Badge className="bg-primary text-white font-bold text-base px-3 py-1.5">
-                                                                                    {judgeScore.total_score}
+                                                                                    {judgeScore.total_score}/{maxScorePerJudge || '—'}
                                                                                 </Badge>
                                                                             </div>
 
@@ -246,9 +251,9 @@ export function FinalLeaderboardRankingsTab({ leaderboard }: RankingsTabProps) {
                                                                                 {judgeScore.criteria_scores.map((criteria) => (
                                                                                     <div
                                                                                         key={criteria.criteria_id}
-                                                                                        className="flex items-center justify-between text-base"
+                                                                                        className="flex flex-wrap items-start justify-between gap-2 text-base"
                                                                                     >
-                                                                                        <span className="text-slate-600 truncate flex-1 mr-3">
+                                                                                        <span className="text-slate-600 flex-1 min-w-[150px] mr-3 break-words">
                                                                                             {criteria.criteria_name}
                                                                                         </span>
                                                                                         <div className="flex items-center gap-2">
@@ -256,7 +261,7 @@ export function FinalLeaderboardRankingsTab({ leaderboard }: RankingsTabProps) {
                                                                                                 <div
                                                                                                     className="h-full bg-primary rounded-full"
                                                                                                     style={{
-                                                                                                        width: `${(criteria.score / criteria.max_score) * 100}%`
+                                                                                                        width: `${getScorePercentage(criteria.score, criteria.max_score)}%`
                                                                                                     }}
                                                                                                 />
                                                                                             </div>

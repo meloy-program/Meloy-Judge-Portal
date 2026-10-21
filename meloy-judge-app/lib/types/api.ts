@@ -145,6 +145,21 @@ export interface DetailedLeaderboardEntry {
     judge_scores: JudgeScore[];
 }
 
+export interface JudgeScoringHistoryEntry {
+    teamName: string;
+    projectTitle: string | null;
+    totalScore: number;
+    judgedAt: string;
+    breakdown: Record<string, number>;
+    reflections: Record<string, string>;
+    comments: string | null;
+}
+
+export interface SummaryJudge {
+    id: string;
+    name: string;
+}
+
 export interface ActivityLogEntry {
     id: string;
     user_id: string;

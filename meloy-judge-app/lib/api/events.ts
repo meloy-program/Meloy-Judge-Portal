@@ -8,6 +8,8 @@ import type {
     Event,
     TeamsResponse,
     LeaderboardResponse,
+    DetailedLeaderboardResponse,
+    JudgeScoringHistoryEntry,
     InsightsResponse,
     JudgesOnlineResponse,
     JudgeProgressResponse,
@@ -154,8 +156,8 @@ export async function getModeratorStatus(eventId: string): Promise<any> {
 export async function getMyProgress(
     eventId: string,
     judgeId: string
-): Promise<any> {
-    return get<any>(`/events/${eventId}/my-progress?judgeId=${judgeId}`);
+): Promise<JudgeScoringHistoryEntry[]> {
+    return get<JudgeScoringHistoryEntry[]>(`/events/${eventId}/my-progress?judgeId=${encodeURIComponent(judgeId)}`);
 }
 
 /**

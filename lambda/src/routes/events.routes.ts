@@ -1016,9 +1016,14 @@ router.get('/:eventId/my-progress', authenticate, async (req: AuthRequest, res) 
             [judgeId, eventId]
         );
 
-        // Get all rubric criteria (for mapping unmapped scores by position)
+        // Restrict legacy positional mapping to this event's rubric.
         const allCriteria = await query(
-            'SELECT id, short_name, display_order FROM rubric_criteria ORDER BY display_order'
+            `SELECT rc.id, rc.short_name, rc.display_order
+             FROM rubric_criteria rc
+             JOIN events e ON e.event_type = rc.event_type
+             WHERE e.id = $1
+             ORDER BY rc.display_order`,
+            [eventId]
         );
 
         // For each completed submission, get per-criteria breakdown

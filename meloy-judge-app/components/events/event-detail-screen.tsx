@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import Image from "next/image"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -21,11 +21,20 @@ import {
 } from "@/components/ui/dropdown-menu"
 import type { Screen } from "@/components/app-shell"
 import { ArrowLeft, BarChart3, Users, CheckCircle2, Clock, Circle, MapPin, CalendarDays, Activity, Settings, User, Loader2, Menu, Shield, ExternalLink, ChevronDown, UserCircle2, Printer, Upload } from "lucide-react"
-import { getEvent, getEventTeams } from "@/lib/api"
-import type { Event, Team } from "@/lib/types/api"
+import { getEvent, getEventTeams, getMyProgress, getRubric } from "@/lib/api"
+import type { Event, Team, RubricCriteria, JudgeScoringHistoryEntry } from "@/lib/types/api"
 import { useAuthToken } from "@/lib/auth-context"
 import { sortEventTeams } from "@/lib/event-judging"
 import { formatEventDateRange } from "@/lib/event-dates"
+import { TeamScorePreview } from "./team-score-preview"
+
+interface ScorePreviewSnapshot {
+  eventId: string
+  judgeId: string | null
+  rubric: RubricCriteria[]
+  history: JudgeScoringHistoryEntry[]
+  status: 'ready' | 'error'
+}
 
 interface EventDetailScreenProps {
   eventId: string
@@ -49,6 +58,8 @@ export function EventDetailScreen({ eventId, judgeId, onSelectTeam, onBack, onNa
   const [expandedTeam, setExpandedTeam] = useState<Team | null>(null)
   const [isInitialLoad, setIsInitialLoad] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [scorePreview, setScorePreview] = useState<ScorePreviewSnapshot | null>(null)
+  const rubricCache = useRef<{ eventType: string; criteria: RubricCriteria[] } | null>(null)
   const { isTokenValid, isValidating } = useAuthToken()
 
   useEffect(() => {
@@ -67,12 +78,33 @@ export function EventDetailScreen({ eventId, judgeId, onSelectTeam, onBack, onNa
           setIsRefreshing(true)
         }
         setError(null)
-        const [eventData, teamsData] = await Promise.all([
+        const [eventData, teamsData, historyResult] = await Promise.all([
           getEvent(eventId),
-          getEventTeams(eventId, { activeOnly: false, judgeId: judgeId || undefined })
+          getEventTeams(eventId, { activeOnly: false, judgeId: judgeId || undefined }),
+          judgeId && !isAdmin
+            ? getMyProgress(eventId, judgeId)
+                .then(history => ({ history, failed: false }))
+                .catch(() => ({ history: [], failed: true }))
+            : Promise.resolve({ history: [], failed: false }),
         ])
         if (cancelled) return
+        let previewFailed = historyResult.failed
+        let criteria: RubricCriteria[] = []
+        try {
+          if (rubricCache.current?.eventType === eventData.event.event_type) {
+            criteria = rubricCache.current.criteria
+          } else {
+            const rubricData = await getRubric(eventData.event.event_type)
+            criteria = [...rubricData.criteria].sort((a, b) => a.display_order - b.display_order)
+            if (!cancelled) rubricCache.current = { eventType: eventData.event.event_type, criteria }
+          }
+        } catch {
+          // An unavailable preview must not prevent judges from opening a card.
+          previewFailed = true
+        }
+        if (cancelled) return
         setEvent(eventData.event)
+        setScorePreview({ eventId, judgeId, rubric: criteria, history: historyResult.history, status: previewFailed ? 'error' : 'ready' })
         // For judges: hide teams still in "waiting" status (not yet activated by moderator)
         // Admins see all teams regardless of status
         const filteredTeams = isAdmin
@@ -109,6 +141,11 @@ export function EventDetailScreen({ eventId, judgeId, onSelectTeam, onBack, onNa
   const isPWSEvent = event?.event_type?.includes("problems-worth-solving") ?? false
   const participantLabel = isPWSEvent ? "Student" : "Team"
   const participantsLabel = isPWSEvent ? "Students" : "Teams"
+  // Do not display another profile's scores while the selected judge changes.
+  const currentPreview = scorePreview?.eventId === eventId && scorePreview.judgeId === judgeId ? scorePreview : null
+  // Team names are unique within an event; the existing history endpoint uses
+  // these names, so one judge-scoped request supplies every card's preview.
+  const historyByTeam = new Map(currentPreview?.history.map(entry => [entry.teamName, entry]) ?? [])
 
   // Calculate team statistics from RDS data
   const totalCount = teams.length
@@ -380,16 +417,16 @@ export function EventDetailScreen({ eventId, judgeId, onSelectTeam, onBack, onNa
                   >
                     {/* Desktop/Tablet: Flex row layout — card grows with tallest column */}
                     <div className="hidden md:flex flex-row min-h-[180px]">
-                      {/* Left Column: Team Photo */}
-                      <div
-                        className="w-48 lg:w-56 xl:w-64 shrink-0 bg-slate-100 bg-cover bg-center"
-                        style={team.photo_url ? { backgroundImage: `url(${team.photo_url})` } : undefined}
-                      >
-                        {!team.photo_url && (
-                          <div className="flex items-center justify-center h-full">
-                            <Image src="/meloyprogram.png" alt="Meloy logo placeholder" width={120} height={120} className="brightness-0 opacity-25" />
-                          </div>
-                        )}
+                      {/* Left Column: Current judge's saved score preview */}
+                      <div className="w-48 lg:w-56 xl:w-64 shrink-0 border-r border-primary/15">
+                        <TeamScorePreview
+                          teamName={team.name}
+                          rubric={currentPreview?.rubric ?? []}
+                          entry={historyByTeam.get(team.name)}
+                          hasSubmitted={isScored}
+                          status={currentPreview?.status ?? 'loading'}
+                          rubricOnly={isAdmin || !judgeId}
+                        />
                       </div>
 
                       {/* Middle Column: Content */}
@@ -495,25 +532,21 @@ export function EventDetailScreen({ eventId, judgeId, onSelectTeam, onBack, onNa
 
                     {/* Mobile Layout - Completely Different */}
                     <div className="md:hidden relative flex flex-col items-center p-6 text-center">
-                      {/* Team Photo - Centered, stretched width */}
-                      <div className="w-full mb-6">
-                        {team.photo_url ? (
-                          <img
-                            src={team.photo_url}
-                            alt={`${team.name} photo`}
-                            className="w-full h-64 rounded-2xl object-cover border-2 border-slate-200 shadow-lg"
-                          />
-                        ) : (
-                          <div className="flex w-full h-64 items-center justify-center rounded-2xl bg-slate-100 backdrop-blur-sm border-2 border-slate-200">
-                            <Image src="/meloyprogram.png" alt="Meloy logo placeholder" width={120} height={120} className="brightness-0 opacity-25" />
-                          </div>
-                        )}
-                      </div>
-
                       {/* Team Title - Centered */}
                       <CardTitle className="text-2xl font-bold text-[#500000] mb-3">
                         {team.name}
                       </CardTitle>
+
+                      <div className="w-full mb-4 overflow-hidden rounded-2xl border border-primary/15">
+                        <TeamScorePreview
+                          teamName={team.name}
+                          rubric={currentPreview?.rubric ?? []}
+                          entry={historyByTeam.get(team.name)}
+                          hasSubmitted={isScored}
+                          status={currentPreview?.status ?? 'loading'}
+                          rubricOnly={isAdmin || !judgeId}
+                        />
+                      </div>
 
                       {/* Team Description - Centered */}
                       <CardDescription className="text-base text-[#500000]/90 leading-relaxed mb-4">

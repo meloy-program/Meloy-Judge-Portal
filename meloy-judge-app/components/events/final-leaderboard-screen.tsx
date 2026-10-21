@@ -12,8 +12,10 @@ import {
     Loader2,
     BarChart2
 } from "lucide-react"
-import { getEvent, getDetailedLeaderboard } from "@/lib/api"
-import type { Event, DetailedLeaderboardEntry } from "@/lib/types/api"
+import { getEvent, getDetailedLeaderboard, getRubric, getTeamScores } from "@/lib/api"
+import type { Event, DetailedLeaderboardEntry, RubricCriteria, SummaryJudge } from "@/lib/types/api"
+import { useAuthToken } from "@/lib/auth-context"
+import { getSummaryJudges, prepareLeaderboard } from "@/lib/judging-summary"
 import { FinalLeaderboardRankingsTab } from "./final-leaderboard-rankings-tab"
 import { FinalLeaderboardAnalyticsTab } from "./final-leaderboard-analytics-tab"
 
@@ -27,29 +29,40 @@ interface FinalLeaderboardScreenProps {
 export function FinalLeaderboardScreen({ eventId, onBack, judgeName, isAdmin = false }: FinalLeaderboardScreenProps) {
     const [event, setEvent] = useState<Event | null>(null)
     const [leaderboard, setLeaderboard] = useState<DetailedLeaderboardEntry[]>([])
+    const [rubric, setRubric] = useState<RubricCriteria[]>([])
+    const [judges, setJudges] = useState<SummaryJudge[]>([])
+    const { isTokenValid, isValidating } = useAuthToken()
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
     const [selectedView, setSelectedView] = useState<'rankings' | 'analytics'>('rankings')
 
     useEffect(() => {
+        if (!isTokenValid || isValidating) return
+        let cancelled = false
         async function fetchData() {
             try {
                 setLoading(true)
                 setError(null)
-                const [eventData, leaderboardData] = await Promise.all([
+                const [eventData, leaderboardData, scoresData] = await Promise.all([
                     getEvent(eventId),
-                    getDetailedLeaderboard(eventId)
+                    getDetailedLeaderboard(eventId),
+                    getTeamScores(eventId),
                 ])
+                const rubricData = await getRubric(eventData.event.event_type)
+                if (cancelled) return
                 setEvent(eventData.event)
-                setLeaderboard(leaderboardData.leaderboard)
+                setRubric([...rubricData.criteria].sort((a, b) => a.display_order - b.display_order))
+                setJudges(getSummaryJudges(leaderboardData.leaderboard, scoresData.judges))
+                setLeaderboard(prepareLeaderboard(leaderboardData.leaderboard, rubricData.criteria))
             } catch (err) {
-                setError(err instanceof Error ? err.message : 'Failed to load leaderboard data')
+                if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load leaderboard data')
             } finally {
-                setLoading(false)
+                if (!cancelled) setLoading(false)
             }
         }
         fetchData()
-    }, [eventId])
+        return () => { cancelled = true }
+    }, [eventId, isTokenValid, isValidating])
 
     // Get sponsor data with fallback logic
     const getSponsorData = () => {
@@ -195,11 +208,11 @@ export function FinalLeaderboardScreen({ eventId, onBack, judgeName, isAdmin = f
                         </TabsList>
 
                         <TabsContent value="rankings" className="mt-6">
-                            <FinalLeaderboardRankingsTab leaderboard={leaderboard} />
+                            <FinalLeaderboardRankingsTab leaderboard={leaderboard} rubric={rubric} judges={judges} eventType={event.event_type} />
                         </TabsContent>
 
                         <TabsContent value="analytics" className="mt-6">
-                            <FinalLeaderboardAnalyticsTab leaderboard={leaderboard} />
+                            <FinalLeaderboardAnalyticsTab leaderboard={leaderboard} rubric={rubric} judges={judges} eventType={event.event_type} />
                         </TabsContent>
                     </Tabs>
                 </div>

@@ -3,10 +3,13 @@
 import { useState, useEffect } from "react"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
+import { Button } from "@/components/ui/button"
+import { Loader2 } from "lucide-react"
 import { JudgeProgressScreen } from "./judge-progress-screen"
 import { FinalLeaderboardScreen } from "./final-leaderboard-screen"
 import { getEvent } from "@/lib/api"
 import type { Event } from "@/lib/types/api"
+import { useAuthToken } from "@/lib/auth-context"
 
 interface LeaderboardScreenProps {
   eventId: string
@@ -27,21 +30,42 @@ interface LeaderboardScreenProps {
 export function LeaderboardScreen({ eventId, judgeId, onBack, judgeName, isAdmin = false }: LeaderboardScreenProps) {
   const [event, setEvent] = useState<Event | null>(null)
   const [manualOverride, setManualOverride] = useState<boolean | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const { isTokenValid, isValidating } = useAuthToken()
 
   const isDev = process.env.NODE_ENV === 'development'
 
   // Fetch event data to check judging phase
   useEffect(() => {
+    if (!isTokenValid || isValidating) return
+    let cancelled = false
     async function fetchEvent() {
       try {
         const { event: eventData } = await getEvent(eventId)
-        setEvent(eventData)
+        if (!cancelled) {
+          setEvent(eventData)
+          setError(null)
+        }
       } catch (err) {
         console.error('Failed to fetch event:', err)
+        if (!cancelled) setError('Unable to load the event summary. Please return to the event and try again.')
       }
     }
     fetchEvent()
-  }, [eventId])
+    const interval = setInterval(fetchEvent, 5000)
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
+  }, [eventId, isTokenValid, isValidating])
+
+  if (!event) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-slate-50">
+        {error ? <><p className="text-red-600">{error}</p><Button onClick={onBack}>Back to Event</Button></> : <Loader2 className="h-12 w-12 animate-spin text-primary" />}
+      </div>
+    )
+  }
 
   // Determine which screen to show
   // Manual override takes precedence in dev mode

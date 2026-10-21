@@ -5,9 +5,12 @@ import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { ArrowLeft, BarChart3, MessageSquare, TrendingUp, Users, Clock, Megaphone, BadgeDollarSign, Presentation, Sparkles, User, Loader2 } from "lucide-react"
-import { getEvent, getMyProgress } from "@/lib/api"
-import type { Event } from "@/lib/types/api"
+import { ArrowLeft, MessageSquare, TrendingUp, Users, Clock, Megaphone, BadgeDollarSign, Presentation, Sparkles, User, Loader2, Target, Lightbulb } from "lucide-react"
+import { getEvent, getMyProgress, getRubric } from "@/lib/api"
+import type { Event, JudgeScoringHistoryEntry, RubricCriteria } from "@/lib/types/api"
+import { useAuthToken } from "@/lib/auth-context"
+import { getScoringLimits, getScorePercentage } from "@/lib/event-judging"
+import { getProgressCriterion } from "@/lib/judging-summary"
 
 /** Format an ISO timestamp into the user's local time */
 function formatJudgedTime(isoString: string): string {
@@ -34,79 +37,55 @@ interface JudgeProgressScreenProps {
     isAdmin?: boolean
 }
 
-const rubricOrder = [
-    {
-        key: "communication",
-        label: "Effective Communication",
-        short: "Communication",
-        maxScore: 25,
-        icon: Megaphone,
-        description: "Problem clarity and solution impact"
-    },
-    {
-        key: "funding",
-        label: "Would Fund/Buy Solution",
-        short: "Fund/Buy",
-        maxScore: 25,
-        icon: BadgeDollarSign,
-        description: "Feasibility and commercial viability"
-    },
-    {
-        key: "presentation",
-        label: "Presentation Quality",
-        short: "Presentation",
-        maxScore: 25,
-        icon: Presentation,
-        description: "Delivery and demo effectiveness"
-    },
-    {
-        key: "cohesion",
-        label: "Team Cohesion",
-        short: "Cohesion",
-        maxScore: 25,
-        icon: Sparkles,
-        description: "Overall team synergy and confidence"
-    },
-] as const
+const criterionIcons: Record<string, typeof Target> = {
+    communication: Megaphone,
+    funding: BadgeDollarSign,
+    presentation: Presentation,
+    cohesion: Sparkles,
+    problem: Target,
+    customer: Users,
+    willingness: BadgeDollarSign,
+    market: TrendingUp,
+    solutions: Lightbulb,
+    overall: Sparkles,
+}
 
 export function JudgeProgressScreen({ eventId, judgeId, onBack, judgeName, isAdmin = false }: JudgeProgressScreenProps) {
     const [event, setEvent] = useState<Event | null>(null)
-    const [judgeScores, setJudgeScores] = useState<any[]>([])
+    const [judgeScores, setJudgeScores] = useState<JudgeScoringHistoryEntry[]>([])
+    const [rubric, setRubric] = useState<RubricCriteria[]>([])
+    const { isTokenValid, isValidating } = useAuthToken()
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
 
     useEffect(() => {
+        if (!isTokenValid || isValidating) return
+        let cancelled = false
         async function fetchData() {
             try {
                 setLoading(true)
                 setError(null)
                 
-                // If no judge profile is selected, show empty state (user might be admin/moderator viewing)
-                if (!judgeId) {
-                    const { event: eventData } = await getEvent(eventId)
-                    setEvent(eventData)
-                    setJudgeScores([])
-                    setLoading(false)
-                    return
-                }
-                
                 const [eventData, progressData] = await Promise.all([
                     getEvent(eventId),
-                    getMyProgress(eventId, judgeId)
+                    judgeId ? getMyProgress(eventId, judgeId) : Promise.resolve([]),
                 ])
-                
+                const rubricData = await getRubric(eventData.event.event_type)
+                if (cancelled) return
                 setEvent(eventData.event)
+                setRubric([...rubricData.criteria].sort((a, b) => a.display_order - b.display_order))
                 // API returns only completed submissions, use directly
                 const completedScores = Array.isArray(progressData) ? progressData : []
                 setJudgeScores(completedScores)
             } catch (err) {
-                setError(err instanceof Error ? err.message : 'Failed to load judge progress data')
+                if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load judge progress data')
             } finally {
-                setLoading(false)
+                if (!cancelled) setLoading(false)
             }
         }
         fetchData()
-    }, [eventId, judgeId])
+        return () => { cancelled = true }
+    }, [eventId, judgeId, isTokenValid, isValidating])
 
     // Get sponsor data with fallback logic
     const getSponsorData = () => {
@@ -152,41 +131,9 @@ export function JudgeProgressScreen({ eventId, judgeId, onBack, judgeName, isAdm
     }
 
     // Safe calculations after loading/error checks
-    const totalTeamsJudged = judgeScores?.length ?? 0
-    const averageScore = totalTeamsJudged > 0
-        ? Math.round(judgeScores.reduce((sum, team) => sum + (team.totalScore || 0), 0) / totalTeamsJudged)
-        : 0
-    const highestScore = totalTeamsJudged > 0
-        ? Math.max(...judgeScores.map(team => team.totalScore || 0))
-        : 0
-
-    const metrics = [
-        {
-            id: "teams-judged",
-            label: "Teams Judged",
-            value: totalTeamsJudged.toString(),
-            icon: Users,
-            iconColor: "text-primary",
-            bgColor: "from-primary/25 via-primary/10 to-transparent",
-        },
-        {
-            id: "avg-score",
-            label: "Average Score",
-            value: averageScore.toString(),
-            icon: BarChart3,
-            iconColor: "text-primary",
-            bgColor: "from-primary/25 via-primary/10 to-transparent",
-        },
-        {
-            id: "highest-score",
-            label: "Highest Score",
-            value: highestScore.toString(),
-            icon: TrendingUp,
-            iconColor: "text-primary",
-            bgColor: "from-primary/25 via-primary/10 to-transparent",
-        },
-    ]
-
+    const participantLabel = event.event_type === 'problems-worth-solving' ? 'Student' : 'Team'
+    const participantsLabel = event.event_type === 'problems-worth-solving' ? 'Students' : 'Teams'
+    const { maxScorePerJudge } = getScoringLimits(rubric, 1)
     return (
         <div className="min-h-screen bg-linear-to-br from-slate-50 via-white to-primary/5">
             <header className="relative overflow-hidden border-b bg-linear-to-b from-primary to-[#3d0000] shadow-xl backdrop-blur-sm">
@@ -211,7 +158,7 @@ export function JudgeProgressScreen({ eventId, judgeId, onBack, judgeName, isAdm
 
                         {/* Center: Title (hidden on mobile) */}
                         <div className="hidden md:flex flex-col items-center flex-1 min-w-0 px-4">
-                            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-white/60 mb-1">Summary Screen</p>
+                            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-white/60 mb-1">My Progress</p>
                             <h1 className="text-xl lg:text-2xl xl:text-3xl font-semibold text-white leading-tight text-center truncate w-full">{event.name}</h1>
                         </div>
 
@@ -276,37 +223,11 @@ export function JudgeProgressScreen({ eventId, judgeId, onBack, judgeName, isAdm
                         </div>
                     )}
 
-                    {/* Metrics Row */}
-                    <div className="grid grid-cols-3 gap-4">
-                        {metrics.map((metric) => {
-                            const Icon = metric.icon
-                            return (
-                                <div
-                                    key={metric.id}
-                                    className="group relative overflow-hidden rounded-2xl border border-slate-200/70 bg-white/90 p-6 shadow-lg backdrop-blur-sm transition-transform duration-300 hover:-translate-y-1 hover:shadow-xl"
-                                >
-                                    <div className={`absolute inset-0 bg-linear-to-br ${metric.bgColor}`} />
-                                    <div className="relative flex items-center gap-4">
-                                        <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-white/80 shadow-sm">
-                                            <Icon className={`h-6 w-6 ${metric.iconColor}`} />
-                                        </div>
-                                        <div>
-                                            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
-                                                {metric.label}
-                                            </p>
-                                            <p className="text-3xl font-bold text-slate-900">{metric.value}</p>
-                                        </div>
-                                    </div>
-                                </div>
-                            )
-                        })}
-                    </div>
-
                     {/* Section Header */}
                     <div className="pt-2">
                         <h2 className="text-[1.9rem] font-semibold text-slate-900">Your Scoring History</h2>
                         <p className="mt-2 text-base text-slate-500">
-                            Review all teams you've evaluated with detailed rubric breakdowns and your reflections.
+                            Review all {participantsLabel.toLowerCase()} you&apos;ve evaluated with detailed rubric breakdowns and your reflections.
                         </p>
                     </div>
 
@@ -322,7 +243,7 @@ export function JudgeProgressScreen({ eventId, judgeId, onBack, judgeName, isAdm
                                                     {index + 1}
                                                 </div>
                                                 <div className="space-y-1.5">
-                                                    <CardTitle className="text-[1.5rem] font-semibold text-slate-900">{team.teamName || 'Team ' + (index + 1)}</CardTitle>
+                                                    <CardTitle className="text-[1.5rem] font-semibold text-slate-900">{team.teamName || participantLabel + ' ' + (index + 1)}</CardTitle>
                                                     <CardDescription className="text-lg text-slate-600">{team.projectTitle || 'No description'}</CardDescription>
                                                     <div className="flex items-center gap-2 mt-2 text-sm text-slate-500">
                                                         <Clock className="h-4 w-4" />
@@ -331,7 +252,7 @@ export function JudgeProgressScreen({ eventId, judgeId, onBack, judgeName, isAdm
                                                 </div>
                                             </div>
                                             <Badge className="rounded-full bg-primary/10 px-5 py-3 text-lg font-semibold text-primary shadow-sm">
-                                                {team.totalScore || 0}/100
+                                                {team.totalScore ?? 0}/{maxScorePerJudge || '—'}
                                             </Badge>
                                         </div>
                                     </CardHeader>
@@ -339,25 +260,25 @@ export function JudgeProgressScreen({ eventId, judgeId, onBack, judgeName, isAdm
                                     <CardContent className="space-y-6 px-7 pb-7">
                                         {/* Score Breakdown Grid */}
                                         <div className="grid gap-5 md:grid-cols-2">
-                                            {rubricOrder.map((category) => {
-                                                const score = team.breakdown?.[category.key] || 0
-                                                const percentage = (score / category.maxScore) * 100
-                                                const Icon = category.icon
+                                            {rubric.map((category) => {
+                                                const { score, reflection } = getProgressCriterion(team, category)
+                                                const percentage = getScorePercentage(score ?? 0, category.max_score)
+                                                const Icon = criterionIcons[category.short_name.toLowerCase()] || Target
 
                                                 return (
-                                                    <div key={category.key} className="space-y-4 rounded-[22px] border border-slate-200/70 bg-slate-50/70 px-5 py-4">
+                                                    <div key={category.id} className="space-y-4 rounded-[22px] border border-slate-200/70 bg-slate-50/70 px-5 py-4">
                                                         <div className="flex items-start justify-between gap-3">
                                                             <div className="flex items-start gap-3 flex-1">
                                                                 <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-linear-to-br from-primary/20 to-primary/10">
                                                                     <Icon className="h-6 w-6 text-primary" />
                                                                 </span>
                                                                 <div className="space-y-1 flex-1 min-w-0">
-                                                                    <p className="text-base font-semibold text-slate-900">{category.label}</p>
+                                                                    <p className="text-base font-semibold text-slate-900">{category.name}</p>
                                                                     <p className="text-sm text-slate-600">{category.description}</p>
                                                                 </div>
                                                             </div>
                                                             <Badge className="shrink-0 rounded-full bg-primary px-3 py-1 text-sm font-semibold text-white">
-                                                                {score}/{category.maxScore}
+                                                                {score ?? '—'}/{category.max_score}
                                                             </Badge>
                                                         </div>
                                                         <div className="h-2 overflow-hidden rounded-full bg-slate-200">
@@ -368,10 +289,10 @@ export function JudgeProgressScreen({ eventId, judgeId, onBack, judgeName, isAdm
                                                         </div>
 
                                                         {/* Individual reflection for this category */}
-                                                        {team.reflections && team.reflections[category.key] && (
+                                                        {reflection && (
                                                             <div className="pt-2 border-t border-slate-200">
                                                                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 mb-2">Your Notes</p>
-                                                                <p className="text-sm text-slate-700 leading-relaxed">{team.reflections[category.key]}</p>
+                                                                <p className="text-sm text-slate-700 leading-relaxed">{reflection}</p>
                                                             </div>
                                                         )}
                                                     </div>
@@ -397,9 +318,9 @@ export function JudgeProgressScreen({ eventId, judgeId, onBack, judgeName, isAdm
                         <Card className="rounded-[28px] border border-slate-200/70 bg-white/95 shadow-lg">
                             <CardContent className="flex flex-col items-center justify-center gap-3 py-16 text-center">
                                 <MessageSquare className="h-16 w-16 text-slate-300" />
-                                <CardTitle className="text-xl font-semibold text-slate-700">No Teams Judged Yet</CardTitle>
+                                <CardTitle className="text-xl font-semibold text-slate-700">{judgeId ? `No ${participantsLabel} Judged Yet` : 'No Judge Profile Selected'}</CardTitle>
                                 <CardDescription className="text-base text-slate-500">
-                                    Teams will appear here as you submit your scores.
+                                    {judgeId ? `${participantsLabel} will appear here as you submit your scores.` : 'Return to the event and select a judge profile to view its scoring history.'}
                                 </CardDescription>
                             </CardContent>
                         </Card>
